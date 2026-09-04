@@ -58,7 +58,7 @@ function main(): void {
   const { positionals, flags } = parseFlags(argv.slice(1));
 
   if (command === "--version" || command === "-v" || flags.version || flags.v) {
-    console.log("arbiter 0.1.0");
+    console.log("arbiter 1.0.0");
     return;
   }
 
