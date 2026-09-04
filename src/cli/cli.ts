@@ -96,12 +96,12 @@ function main(): void {
         } else {
           const all = db.listTasks();
           const ready = db.getReadyTasks();
-          const activeWorktrees = worktrees.listWorktrees();
+          const taskWorktrees = worktrees.listWorktrees().filter((w) => w.branch.startsWith("arbiter/task-"));
           console.log(JSON.stringify({
             ok: true,
             totalTasks: all.length,
             readyTasks: ready.length,
-            activeWorktrees: activeWorktrees.length,
+            activeWorktrees: taskWorktrees.length,
             tasks: all,
           }, null, 2));
         }
