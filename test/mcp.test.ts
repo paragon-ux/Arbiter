@@ -78,25 +78,31 @@ test("ArbiterMcpServer handles initialize, ping, tools/list, and full agent work
     }));
     assert.ok(listRaw);
     const listRes = JSON.parse(listRaw);
-    assert.equal(listRes.result.tools.length, 6);
+    assert.equal(listRes.result.tools.length, 10);
 
-    // 3. Submit a task via service
-    const task = taskService.submitTask({
-      id: "T-100",
+    // 3. Submit a task via MCP
+    const submitRes = await callTool(server, "arbiter_submit_task", {
+      task_id: "T-100",
       title: "Implement greeting endpoint",
       description: "How does the greeting service format output?",
-      baseBranch: "main",
+      base_branch: "main",
     });
-    assert.equal(task.status, "READY");
+    assert.equal(submitRes.ok, true);
+    assert.equal((submitRes.task as Record<string, unknown>).id, "T-100");
 
-    // 4. Agent claims task via MCP
+    // 4. Scan leases via MCP (none expired yet)
+    const scanRes = await callTool(server, "arbiter_scan_leases", {});
+    assert.equal(scanRes.ok, true);
+    assert.equal(scanRes.scanned, 0);
+
+    // 5. Agent claims task via MCP
     const claimRes = await callTool(server, "arbiter_claim_task", { worker_id: "agent-gemini", pid: process.pid });
     assert.equal(claimRes.ok, true);
     assert.equal(claimRes.task_id, "T-100");
     assert.ok(claimRes.worktree_path);
     assert.ok(claimRes.waymark_trajectory_id);
 
-    // 5. Checkpoint
+    // 6. Checkpoint
     const checkpointRes = await callTool(server, "arbiter_checkpoint", {
       task_id: "T-100",
       worker_id: "agent-gemini",
@@ -104,13 +110,13 @@ test("ArbiterMcpServer handles initialize, ping, tools/list, and full agent work
     });
     assert.equal(checkpointRes.ok, true);
 
-    // 6. Status check
+    // 7. Status check
     const statusRes = await callTool(server, "arbiter_status", { task_id: "T-100" });
     assert.equal(statusRes.ok, true);
     const inspectedTask = statusRes.task as Record<string, unknown>;
     assert.equal(inspectedTask.status, "IN_PROGRESS");
 
-    // 7. Complete task
+    // 8. Complete task
     const completeRes = await callTool(server, "arbiter_complete_task", {
       task_id: "T-100",
       worker_id: "agent-gemini",
@@ -119,7 +125,19 @@ test("ArbiterMcpServer handles initialize, ping, tools/list, and full agent work
     assert.equal(completeRes.ok, true);
     assert.equal(completeRes.status, "COMPLETED");
 
-    // 8. Verify DB status
+    // 9. Process merge queue via MCP
+    const mergeRes = await callTool(server, "arbiter_process_merge_queue", {
+      task_id: "T-100",
+      target_branch: "main",
+    });
+    assert.equal(mergeRes.ok, true);
+    assert.equal(mergeRes.merged, true);
+
+    // 10. Prune worktrees via MCP
+    const pruneRes = await callTool(server, "arbiter_prune_worktrees", {});
+    assert.equal(pruneRes.ok, true);
+
+    // 11. Verify DB status
     const finishedTask = db.getTask("T-100");
     assert.equal(finishedTask?.status, "COMPLETED");
     assert.equal(finishedTask?.resultAnswer, "Created greeting endpoint with UTF-8 support.");

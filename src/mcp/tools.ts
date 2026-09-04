@@ -1,8 +1,13 @@
 import { TaskService } from "../dag/taskService.js";
 import { WaymarkSupervisor } from "../waymark/waymarkSupervisor.js";
+import { MergeQueue } from "../merge/mergeQueue.js";
 import { errorResult, jsonResult, McpToolHandler } from "./types.js";
 
-export function createArbiterTools(taskService: TaskService, waymark: WaymarkSupervisor): McpToolHandler[] {
+export function createArbiterTools(
+  taskService: TaskService,
+  waymark: WaymarkSupervisor,
+  mergeQueue?: MergeQueue,
+): McpToolHandler[] {
   const claimTaskTool: McpToolHandler = {
     definition: {
       name: "arbiter_claim_task",
@@ -247,12 +252,134 @@ export function createArbiterTools(taskService: TaskService, waymark: WaymarkSup
     },
   };
 
+  const submitTaskTool: McpToolHandler = {
+    definition: {
+      name: "arbiter_submit_task",
+      description: "Submit a new task to Arbiter's DAG with optional parent dependencies.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Task title." },
+          description: { type: "string", description: "Detailed task instructions." },
+          dependencies: {
+            type: "array",
+            items: { type: "string" },
+            description: "Task IDs that must complete before this task becomes READY.",
+          },
+          base_branch: { type: "string", description: "Base branch to branch from (default 'main')." },
+          task_id: { type: "string", description: "Optional custom task ID." },
+        },
+        required: ["title", "description"],
+      },
+    },
+    handler: async (args) => {
+      try {
+        const title = String(args.title);
+        const description = String(args.description);
+        const dependencies = Array.isArray(args.dependencies) ? args.dependencies.map(String) : undefined;
+        const baseBranch = typeof args.base_branch === "string" ? args.base_branch : undefined;
+        const id = typeof args.task_id === "string" ? args.task_id : undefined;
+        const task = taskService.submitTask({ id, title, description, dependencies, baseBranch });
+        return jsonResult({ ok: true, task });
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  };
+
+  const mergeQueueTool: McpToolHandler = {
+    definition: {
+      name: "arbiter_process_merge_queue",
+      description: "Process completed tasks in the sequential merge queue into the target branch.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task_id: { type: "string", description: "Optional specific task ID to merge." },
+          target_branch: { type: "string", description: "Target branch to merge into (default 'main')." },
+        },
+      },
+    },
+    handler: async (args) => {
+      try {
+        const queue = mergeQueue ?? new MergeQueue(taskService.db, taskService.worktrees, taskService.worktrees.repoRoot);
+        const targetBranch = typeof args.target_branch === "string" ? args.target_branch : "main";
+        if (typeof args.task_id === "string" && args.task_id.trim()) {
+          const res = queue.mergeTask(args.task_id.trim(), targetBranch);
+          return jsonResult(res);
+        }
+        const merges = queue.mergeAllCompleted(targetBranch);
+        return jsonResult({ ok: true, merges });
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  };
+
+  const scanLeasesTool: McpToolHandler = {
+    definition: {
+      name: "arbiter_scan_leases",
+      description: "Scan active worker leases for dead processes or heartbeat timeouts and recover orphaned Waymark locks.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          heartbeat_timeout_ms: { type: "number", description: "Heartbeat timeout in milliseconds (default 300,000)." },
+          force_lock_recovery: { type: "boolean", description: "Whether to force Waymark lock recovery." },
+        },
+      },
+    },
+    handler: async (args) => {
+      try {
+        const timeout = typeof args.heartbeat_timeout_ms === "number" ? args.heartbeat_timeout_ms : undefined;
+        const force = typeof args.force_lock_recovery === "boolean" ? args.force_lock_recovery : true;
+        const result = taskService.watchdog.scanLeases({ heartbeatTimeoutMs: timeout, forceLockRecovery: force });
+        return jsonResult({ ok: true, ...result });
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  };
+
+  const pruneWorktreesTool: McpToolHandler = {
+    definition: {
+      name: "arbiter_prune_worktrees",
+      description: "Prune worktrees and delete branches for completed or failed tasks.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+    },
+    handler: async () => {
+      try {
+        const activeWorktrees = taskService.worktrees.listWorktrees();
+        const pruned: string[] = [];
+        for (const wt of activeWorktrees) {
+          if (wt.branch.startsWith("arbiter/task-")) {
+            const taskId = wt.branch.replace("arbiter/task-", "");
+            const task = taskService.db.getTask(taskId);
+            if (task && (task.status === "COMPLETED" || task.status === "FAILED")) {
+              taskService.worktrees.removeWorktree(taskId);
+              taskService.worktrees.deleteBranch(taskId);
+              pruned.push(taskId);
+            }
+          }
+        }
+        return jsonResult({ ok: true, pruned_count: pruned.length, pruned });
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  };
+
   return [
+    submitTaskTool,
     claimTaskTool,
     checkpointTool,
     completeTaskTool,
     failTaskTool,
     recoverLockTool,
     statusTool,
+    mergeQueueTool,
+    scanLeasesTool,
+    pruneWorktreesTool,
   ];
 }

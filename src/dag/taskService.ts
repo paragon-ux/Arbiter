@@ -4,6 +4,7 @@ import { TaskRecord } from "../db/types.js";
 import { TaskGraph } from "./taskGraph.js";
 import { WorktreeManager } from "../worktrees/worktreeManager.js";
 import { WaymarkSupervisor } from "../waymark/waymarkSupervisor.js";
+import { LeaseWatchdog } from "../dispatch/watchdog.js";
 
 export interface SubmitTaskParams {
   id?: string;
@@ -22,6 +23,7 @@ export interface ClaimTaskResult {
 
 export class TaskService {
   public readonly graph: TaskGraph;
+  public readonly watchdog: LeaseWatchdog;
 
   constructor(
     public readonly db: ArbiterDatabase,
@@ -29,6 +31,7 @@ export class TaskService {
     public readonly waymark: WaymarkSupervisor,
   ) {
     this.graph = new TaskGraph(db);
+    this.watchdog = new LeaseWatchdog(db, worktrees, waymark);
   }
 
   public submitTask(params: SubmitTaskParams): TaskRecord {
@@ -64,6 +67,9 @@ export class TaskService {
   }
 
   public claimNextTask(workerId: string, pid = process.pid): ClaimTaskResult | null {
+    // Reclaim any abandoned or dead worker tasks before dispatch
+    this.watchdog.scanLeases();
+
     // Ensure any ready tasks are updated
     this.graph.updateUnblockedTasks();
     const readyTasks = this.db.getReadyTasks();

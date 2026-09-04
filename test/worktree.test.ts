@@ -33,7 +33,7 @@ test("WorktreeManager provisions isolated worktree, commits changes, and prunes 
 
     // 1. Create worktree
     const { path: wtPath, branch } = manager.createWorktree("task-alpha", "main");
-    assert.equal(branch, "arbiter/task-task-alpha");
+    assert.equal(branch, "arbiter/task-alpha");
     assert.ok(fs.existsSync(wtPath));
     assert.ok(fs.existsSync(path.join(wtPath, "README.md")));
 
@@ -47,7 +47,7 @@ test("WorktreeManager provisions isolated worktree, commits changes, and prunes 
 
     // 4. List worktrees
     const list = manager.listWorktrees();
-    assert.ok(list.some((w) => w.branch === "arbiter/task-task-alpha"));
+    assert.ok(list.some((w) => w.branch === "arbiter/task-alpha"));
 
     // 5. Remove worktree
     manager.removeWorktree("task-alpha");
@@ -56,7 +56,7 @@ test("WorktreeManager provisions isolated worktree, commits changes, and prunes 
     // 6. Delete branch
     manager.deleteBranch("task-alpha");
     const remainingList = manager.listWorktrees();
-    assert.equal(remainingList.some((w) => w.branch === "arbiter/task-task-alpha"), false);
+    assert.equal(remainingList.some((w) => w.branch === "arbiter/task-alpha"), false);
   } finally {
     cleanup();
   }

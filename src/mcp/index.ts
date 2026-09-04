@@ -6,6 +6,7 @@ import { ArbiterDatabase } from "../db/database.js";
 import { WorktreeManager } from "../worktrees/worktreeManager.js";
 import { WaymarkSupervisor } from "../waymark/waymarkSupervisor.js";
 import { TaskService } from "../dag/taskService.js";
+import { MergeQueue } from "../merge/mergeQueue.js";
 import { createArbiterTools } from "./tools.js";
 import { ArbiterMcpServer } from "./server.js";
 
@@ -27,8 +28,9 @@ function main(): void {
   const worktrees = new WorktreeManager(repoRoot);
   const waymark = new WaymarkSupervisor();
   const taskService = new TaskService(db, worktrees, waymark);
+  const mergeQueue = new MergeQueue(db, worktrees, repoRoot);
 
-  const tools = createArbiterTools(taskService, waymark);
+  const tools = createArbiterTools(taskService, waymark, mergeQueue);
   const server = new ArbiterMcpServer(tools);
 
   server.listenStdio();

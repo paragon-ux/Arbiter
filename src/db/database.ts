@@ -163,6 +163,21 @@ export class ArbiterDatabase {
     this.db.prepare("UPDATE worker_leases SET status = 'RELEASED' WHERE worker_id = ? AND task_id = ?").run(workerId, taskId);
   }
 
+  public listActiveLeases(): WorkerLease[] {
+    const rows = this.db.prepare("SELECT * FROM worker_leases WHERE status = 'ACTIVE' ORDER BY heartbeat_at ASC").all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      workerId: String(row.worker_id),
+      taskId: String(row.task_id),
+      pid: Number(row.pid),
+      heartbeatAt: String(row.heartbeat_at),
+      status: row.status as "ACTIVE" | "EXPIRED" | "RELEASED",
+    }));
+  }
+
+  public expireWorkerLease(workerId: string, taskId: string): void {
+    this.db.prepare("UPDATE worker_leases SET status = 'EXPIRED' WHERE worker_id = ? AND task_id = ?").run(workerId, taskId);
+  }
+
   public logEvent(taskId: string, type: string, payload: Record<string, unknown>): void {
     this.db.prepare(`
       INSERT INTO task_events (task_id, type, payload, created_at)

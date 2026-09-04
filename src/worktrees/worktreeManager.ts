@@ -17,12 +17,14 @@ export class WorktreeManager {
   }
 
   public getWorktreePathForTask(taskId: string): string {
-    const safeId = taskId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const raw = taskId.startsWith("task-") ? taskId.slice(5) : taskId;
+    const safeId = raw.replace(/[^a-zA-Z0-9_-]/g, "_");
     return path.join(this.getWorktreesDir(), `task-${safeId}`);
   }
 
   public getBranchNameForTask(taskId: string): string {
-    const safeId = taskId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const raw = taskId.startsWith("task-") ? taskId.slice(5) : taskId;
+    const safeId = raw.replace(/[^a-zA-Z0-9_-]/g, "_");
     return `arbiter/task-${safeId}`;
   }
 

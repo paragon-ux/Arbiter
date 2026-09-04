@@ -18,7 +18,7 @@ export interface McpToolHandler {
   handler: (args: Record<string, unknown>) => Promise<McpToolCallResult> | McpToolCallResult;
 }
 
-export function jsonResult(payload: Record<string, unknown>, isError = false): McpToolCallResult {
+export function jsonResult(payload: unknown, isError = false): McpToolCallResult {
   return {
     content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
     isError,
