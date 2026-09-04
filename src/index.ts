@@ -9,3 +9,4 @@ export * from "./merge/mergeQueue.js";
 export * from "./mcp/types.js";
 export * from "./mcp/tools.js";
 export * from "./mcp/server.js";
+export * from "./dispatch/watchdog.js";
