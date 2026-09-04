@@ -1,0 +1,202 @@
+import fs from "node:fs";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { TaskDependency, TaskEvent, TaskRecord, TaskStatus, WorkerLease } from "./types.js";
+import { applyMigrations } from "./migrations.js";
+
+export class ArbiterDatabase {
+  public readonly db: DatabaseSync;
+
+  constructor(dbPath: string) {
+    if (dbPath !== ":memory:") {
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    }
+    this.db = new DatabaseSync(dbPath);
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+    applyMigrations(this.db);
+  }
+
+  public close(): void {
+    this.db.close();
+  }
+
+  public insertTask(task: Omit<TaskRecord, "status" | "createdAt" | "updatedAt" | "completedAt"> & { status?: TaskStatus }): TaskRecord {
+    const now = new Date().toISOString();
+    const status = task.status ?? "PENDING";
+    const stmt = this.db.prepare(`
+      INSERT INTO tasks (
+        id, title, description, status, base_branch, branch,
+        worktree_path, assigned_worker_id, waymark_trajectory_id,
+        result_answer, error_message, created_at, updated_at, completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      task.id,
+      task.title,
+      task.description,
+      status,
+      task.baseBranch,
+      task.branch,
+      task.worktreePath,
+      task.assignedWorkerId,
+      task.waymarkTrajectoryId,
+      task.resultAnswer,
+      task.errorMessage,
+      now,
+      now,
+      null,
+    );
+    return {
+      ...task,
+      status,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: null,
+    };
+  }
+
+  public getTask(id: string): TaskRecord | null {
+    const row = this.db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.mapTaskRow(row);
+  }
+
+  public listTasks(statusFilter?: TaskStatus): TaskRecord[] {
+    const rows = statusFilter
+      ? (this.db.prepare("SELECT * FROM tasks WHERE status = ? ORDER BY created_at ASC").all(statusFilter) as Array<Record<string, unknown>>)
+      : (this.db.prepare("SELECT * FROM tasks ORDER BY created_at ASC").all() as Array<Record<string, unknown>>);
+    return rows.map((r) => this.mapTaskRow(r));
+  }
+
+  public updateTask(id: string, updates: Partial<TaskRecord>): TaskRecord {
+    const current = this.getTask(id);
+    if (!current) throw new Error(`Task ${id} not found`);
+
+    const updated: TaskRecord = {
+      ...current,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.db.prepare(`
+      UPDATE tasks SET
+        title = ?, description = ?, status = ?, base_branch = ?, branch = ?,
+        worktree_path = ?, assigned_worker_id = ?, waymark_trajectory_id = ?,
+        result_answer = ?, error_message = ?, updated_at = ?, completed_at = ?
+      WHERE id = ?
+    `).run(
+      updated.title,
+      updated.description,
+      updated.status,
+      updated.baseBranch,
+      updated.branch,
+      updated.worktreePath,
+      updated.assignedWorkerId,
+      updated.waymarkTrajectoryId,
+      updated.resultAnswer,
+      updated.errorMessage,
+      updated.updatedAt,
+      updated.completedAt,
+      id,
+    );
+
+    return updated;
+  }
+
+  public addDependency(parentTaskId: string, childTaskId: string): void {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO task_dependencies (parent_task_id, child_task_id)
+      VALUES (?, ?)
+    `).run(parentTaskId, childTaskId);
+  }
+
+  public getParentTaskIds(childTaskId: string): string[] {
+    const rows = this.db.prepare("SELECT parent_task_id FROM task_dependencies WHERE child_task_id = ?").all(childTaskId) as Array<{ parent_task_id: string }>;
+    return rows.map((r) => r.parent_task_id);
+  }
+
+  public getChildTaskIds(parentTaskId: string): string[] {
+    const rows = this.db.prepare("SELECT child_task_id FROM task_dependencies WHERE parent_task_id = ?").all(parentTaskId) as Array<{ child_task_id: string }>;
+    return rows.map((r) => r.child_task_id);
+  }
+
+  public getReadyTasks(): TaskRecord[] {
+    // A task is READY if it is PENDING or READY, and all parent dependencies are COMPLETED
+    const sql = `
+      SELECT t.* FROM tasks t
+      WHERE t.status IN ('PENDING', 'READY')
+      AND NOT EXISTS (
+        SELECT 1 FROM task_dependencies d
+        JOIN tasks p ON d.parent_task_id = p.id
+        WHERE d.child_task_id = t.id AND p.status != 'COMPLETED'
+      )
+      ORDER BY t.created_at ASC
+    `;
+    const rows = this.db.prepare(sql).all() as Array<Record<string, unknown>>;
+    return rows.map((r) => this.mapTaskRow(r));
+  }
+
+  public setWorkerLease(lease: WorkerLease): void {
+    this.db.prepare(`
+      INSERT INTO worker_leases (worker_id, task_id, pid, heartbeat_at, status)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(worker_id, task_id) DO UPDATE SET
+        pid = excluded.pid,
+        heartbeat_at = excluded.heartbeat_at,
+        status = excluded.status
+    `).run(lease.workerId, lease.taskId, lease.pid, lease.heartbeatAt, lease.status);
+  }
+
+  public getWorkerLease(taskId: string): WorkerLease | null {
+    const row = this.db.prepare("SELECT * FROM worker_leases WHERE task_id = ? AND status = 'ACTIVE'").get(taskId) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      workerId: String(row.worker_id),
+      taskId: String(row.task_id),
+      pid: Number(row.pid),
+      heartbeatAt: String(row.heartbeat_at),
+      status: row.status as "ACTIVE" | "EXPIRED" | "RELEASED",
+    };
+  }
+
+  public releaseWorkerLease(workerId: string, taskId: string): void {
+    this.db.prepare("UPDATE worker_leases SET status = 'RELEASED' WHERE worker_id = ? AND task_id = ?").run(workerId, taskId);
+  }
+
+  public logEvent(taskId: string, type: string, payload: Record<string, unknown>): void {
+    this.db.prepare(`
+      INSERT INTO task_events (task_id, type, payload, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(taskId, type, JSON.stringify(payload), new Date().toISOString());
+  }
+
+  public getEvents(taskId: string): TaskEvent[] {
+    const rows = this.db.prepare("SELECT * FROM task_events WHERE task_id = ? ORDER BY id ASC").all(taskId) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      id: Number(r.id),
+      taskId: String(r.task_id),
+      type: String(r.type),
+      payload: String(r.payload),
+      createdAt: String(r.created_at),
+    }));
+  }
+
+  private mapTaskRow(row: Record<string, unknown>): TaskRecord {
+    return {
+      id: String(row.id),
+      title: String(row.title),
+      description: String(row.description),
+      status: row.status as TaskStatus,
+      baseBranch: String(row.base_branch),
+      branch: String(row.branch),
+      worktreePath: row.worktree_path ? String(row.worktree_path) : null,
+      assignedWorkerId: row.assigned_worker_id ? String(row.assigned_worker_id) : null,
+      waymarkTrajectoryId: row.waymark_trajectory_id ? String(row.waymark_trajectory_id) : null,
+      resultAnswer: row.result_answer ? String(row.result_answer) : null,
+      errorMessage: row.error_message ? String(row.error_message) : null,
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      completedAt: row.completed_at ? String(row.completed_at) : null,
+    };
+  }
+}
