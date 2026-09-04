@@ -128,7 +128,11 @@ Arbiter maintains complete parity between agent tools and operator commands:
 
 ## Waymark Trajectory Conflict Handling & Quarantine
 
-A core design invariant is that **Git merge conflicts never destroy or corrupt Waymark continuity data**. The quarantine lifecycle follows a fail-closed sequence (detailed architectural flowchart available as SVG in [Rationale.MD](Rationale.MD)):
+A core design invariant is that **Git merge conflicts never destroy or corrupt Waymark continuity data**. The quarantine lifecycle follows a fail-closed sequence (detailed architectural rationale in [Rationale.MD](Rationale.MD)):
+
+<p align="center">
+  <img src="docs/assets/conflict-quarantine-flowchart.svg" alt="Arbiter Trajectory Conflict Handling & Quarantine" width="100%" />
+</p>
 
 ```
 [1. Task Claimed (STAGED)]
