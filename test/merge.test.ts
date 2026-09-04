@@ -141,6 +141,30 @@ test("MergeQueue quarantines conflicting task branch and aborts git merge cleanl
     // Verify main repo is NOT stuck in merge state
     const gitStatus = execFileSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8" });
     assert.equal(gitStatus.trim(), "");
+
+    // 4. Reconciliation: Operator or agent merges main into worktree B and resolves conflicts
+    try {
+      execFileSync("git", ["merge", "main"], { cwd: wtB, windowsHide: true });
+    } catch {
+      // Conflict during merge main is expected
+    }
+    fs.writeFileSync(path.join(wtB, "shared.txt"), "Content from Task A + Task B reconciled\n", "utf8");
+    execFileSync("git", ["add", "shared.txt"], { cwd: wtB, windowsHide: true });
+    execFileSync("git", ["commit", "-m", "Merge main and resolve conflicts"], { cwd: wtB, windowsHide: true });
+
+    // 5. Re-trigger merge for Task B -> succeeds and prunes quarantined worktree
+    const resBReconciled = queue.mergeTask("TB", "main");
+    assert.equal(resBReconciled.ok, true);
+    assert.equal(resBReconciled.merged, true);
+
+    const resolvedTaskB = db.getTask("TB");
+    assert.equal(resolvedTaskB?.status, "COMPLETED");
+    assert.equal(resolvedTaskB?.worktreePath, null);
+    assert.equal(fs.existsSync(wtB), false);
+
+    // Verify main repo has the reconciled content
+    const mainContent = fs.readFileSync(path.join(repoRoot, "shared.txt"), "utf8");
+    assert.equal(mainContent.replace(/\r\n/g, "\n"), "Content from Task A + Task B reconciled\n");
   } finally {
     cleanup();
   }

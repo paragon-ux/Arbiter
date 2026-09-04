@@ -22,8 +22,8 @@ export class MergeQueue {
     const task = this.db.getTask(taskId);
     if (!task) throw new Error(`Task ${taskId} not found`);
 
-    if (task.status !== "COMPLETED") {
-      throw new Error(`Cannot merge task ${taskId}: status is ${task.status} (must be COMPLETED)`);
+    if (task.status !== "COMPLETED" && task.status !== "CONFLICT") {
+      throw new Error(`Cannot merge task ${taskId}: status is ${task.status} (must be COMPLETED or CONFLICT)`);
     }
 
     const branch = this.worktrees.getBranchNameForTask(taskId);
@@ -40,6 +40,7 @@ export class MergeQueue {
       this.worktrees.deleteBranch(taskId);
 
       this.db.updateTask(taskId, {
+        status: "COMPLETED",
         worktreePath: null,
       });
       this.db.logEvent(taskId, "task.merged", { targetBranch, branch });
