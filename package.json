@@ -9,13 +9,35 @@
     "arbiter": "./dist/src/cli/cli.js",
     "arbiter-mcp": "./dist/src/mcp/index.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paragon-ux/Arbiter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/paragon-ux/Arbiter/issues"
+  },
+  "homepage": "https://github.com/paragon-ux/Arbiter#readme",
+  "license": "MIT",
+  "keywords": [
+    "multi-agent",
+    "orchestration",
+    "git-worktrees",
+    "mcp",
+    "model-context-protocol",
+    "waymark",
+    "continuity",
+    "sqlite"
+  ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test \"dist/test/**/*.test.js\"",
-    "verify": "npm run test"
+    "test:coverage": "npm run build && node --test --experimental-test-coverage \"dist/test/**/*.test.js\"",
+    "public-check": "node scripts/public-check.mjs",
+    "benchmark": "npm run build && node scripts/benchmark.mjs",
+    "verify": "npm run build && node --test \"dist/test/**/*.test.js\" && node scripts/public-check.mjs && node scripts/benchmark.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
