@@ -1,29 +1,48 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, StatementSync } from "node:sqlite";
 import { TaskDependency, TaskEvent, TaskRecord, TaskStatus, WorkerLease } from "./types.js";
 import { applyMigrations } from "./migrations.js";
 
+export interface DatabaseMetrics {
+  totalTasks: number;
+  statusCounts: Record<string, number>;
+  activeLeases: number;
+  totalEvents: number;
+  eventCounts: Record<string, number>;
+}
+
 export class ArbiterDatabase {
   public readonly db: DatabaseSync;
+  private readonly statementCache = new Map<string, StatementSync>();
 
   constructor(dbPath: string) {
     if (dbPath !== ":memory:") {
       fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     }
     this.db = new DatabaseSync(dbPath);
-    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     applyMigrations(this.db);
   }
 
+  private prepare(sql: string): StatementSync {
+    let stmt = this.statementCache.get(sql);
+    if (!stmt) {
+      stmt = this.db.prepare(sql);
+      this.statementCache.set(sql, stmt);
+    }
+    return stmt;
+  }
+
   public close(): void {
+    this.statementCache.clear();
     this.db.close();
   }
 
   public insertTask(task: Omit<TaskRecord, "status" | "createdAt" | "updatedAt" | "completedAt"> & { status?: TaskStatus }): TaskRecord {
     const now = new Date().toISOString();
     const status = task.status ?? "PENDING";
-    const stmt = this.db.prepare(`
+    const stmt = this.prepare(`
       INSERT INTO tasks (
         id, title, description, status, base_branch, branch,
         worktree_path, assigned_worker_id, waymark_trajectory_id,
@@ -56,15 +75,15 @@ export class ArbiterDatabase {
   }
 
   public getTask(id: string): TaskRecord | null {
-    const row = this.db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    const row = this.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown> | undefined;
     if (!row) return null;
     return this.mapTaskRow(row);
   }
 
   public listTasks(statusFilter?: TaskStatus): TaskRecord[] {
     const rows = statusFilter
-      ? (this.db.prepare("SELECT * FROM tasks WHERE status = ? ORDER BY created_at ASC").all(statusFilter) as Array<Record<string, unknown>>)
-      : (this.db.prepare("SELECT * FROM tasks ORDER BY created_at ASC").all() as Array<Record<string, unknown>>);
+      ? (this.prepare("SELECT * FROM tasks WHERE status = ? ORDER BY created_at ASC").all(statusFilter) as Array<Record<string, unknown>>)
+      : (this.prepare("SELECT * FROM tasks ORDER BY created_at ASC").all() as Array<Record<string, unknown>>);
     return rows.map((r) => this.mapTaskRow(r));
   }
 
@@ -78,7 +97,7 @@ export class ArbiterDatabase {
       updatedAt: new Date().toISOString(),
     };
 
-    this.db.prepare(`
+    this.prepare(`
       UPDATE tasks SET
         title = ?, description = ?, status = ?, base_branch = ?, branch = ?,
         worktree_path = ?, assigned_worker_id = ?, waymark_trajectory_id = ?,
@@ -104,20 +123,24 @@ export class ArbiterDatabase {
   }
 
   public addDependency(parentTaskId: string, childTaskId: string): void {
-    this.db.prepare(`
+    this.prepare(`
       INSERT OR IGNORE INTO task_dependencies (parent_task_id, child_task_id)
       VALUES (?, ?)
     `).run(parentTaskId, childTaskId);
   }
 
   public getParentTaskIds(childTaskId: string): string[] {
-    const rows = this.db.prepare("SELECT parent_task_id FROM task_dependencies WHERE child_task_id = ?").all(childTaskId) as Array<{ parent_task_id: string }>;
+    const rows = this.prepare("SELECT parent_task_id FROM task_dependencies WHERE child_task_id = ?").all(childTaskId) as Array<{ parent_task_id: string }>;
     return rows.map((r) => r.parent_task_id);
   }
 
   public getChildTaskIds(parentTaskId: string): string[] {
-    const rows = this.db.prepare("SELECT child_task_id FROM task_dependencies WHERE parent_task_id = ?").all(parentTaskId) as Array<{ child_task_id: string }>;
+    const rows = this.prepare("SELECT child_task_id FROM task_dependencies WHERE parent_task_id = ?").all(parentTaskId) as Array<{ child_task_id: string }>;
     return rows.map((r) => r.child_task_id);
+  }
+
+  public getAllDependencies(): Array<{ parent_task_id: string; child_task_id: string }> {
+    return this.prepare("SELECT parent_task_id, child_task_id FROM task_dependencies").all() as Array<{ parent_task_id: string; child_task_id: string }>;
   }
 
   public getReadyTasks(): TaskRecord[] {
@@ -132,12 +155,12 @@ export class ArbiterDatabase {
       )
       ORDER BY t.created_at ASC
     `;
-    const rows = this.db.prepare(sql).all() as Array<Record<string, unknown>>;
+    const rows = this.prepare(sql).all() as Array<Record<string, unknown>>;
     return rows.map((r) => this.mapTaskRow(r));
   }
 
   public setWorkerLease(lease: WorkerLease): void {
-    this.db.prepare(`
+    this.prepare(`
       INSERT INTO worker_leases (worker_id, task_id, pid, heartbeat_at, status)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(worker_id, task_id) DO UPDATE SET
@@ -148,7 +171,7 @@ export class ArbiterDatabase {
   }
 
   public getWorkerLease(taskId: string): WorkerLease | null {
-    const row = this.db.prepare("SELECT * FROM worker_leases WHERE task_id = ? AND status = 'ACTIVE'").get(taskId) as Record<string, unknown> | undefined;
+    const row = this.prepare("SELECT * FROM worker_leases WHERE task_id = ? AND status = 'ACTIVE'").get(taskId) as Record<string, unknown> | undefined;
     if (!row) return null;
     return {
       workerId: String(row.worker_id),
@@ -160,11 +183,11 @@ export class ArbiterDatabase {
   }
 
   public releaseWorkerLease(workerId: string, taskId: string): void {
-    this.db.prepare("UPDATE worker_leases SET status = 'RELEASED' WHERE worker_id = ? AND task_id = ?").run(workerId, taskId);
+    this.prepare("UPDATE worker_leases SET status = 'RELEASED' WHERE worker_id = ? AND task_id = ?").run(workerId, taskId);
   }
 
   public listActiveLeases(): WorkerLease[] {
-    const rows = this.db.prepare("SELECT * FROM worker_leases WHERE status = 'ACTIVE' ORDER BY heartbeat_at ASC").all() as Array<Record<string, unknown>>;
+    const rows = this.prepare("SELECT * FROM worker_leases WHERE status = 'ACTIVE' ORDER BY heartbeat_at ASC").all() as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       workerId: String(row.worker_id),
       taskId: String(row.task_id),
@@ -175,18 +198,18 @@ export class ArbiterDatabase {
   }
 
   public expireWorkerLease(workerId: string, taskId: string): void {
-    this.db.prepare("UPDATE worker_leases SET status = 'EXPIRED' WHERE worker_id = ? AND task_id = ?").run(workerId, taskId);
+    this.prepare("UPDATE worker_leases SET status = 'EXPIRED' WHERE worker_id = ? AND task_id = ?").run(workerId, taskId);
   }
 
   public logEvent(taskId: string, type: string, payload: Record<string, unknown>): void {
-    this.db.prepare(`
+    this.prepare(`
       INSERT INTO task_events (task_id, type, payload, created_at)
       VALUES (?, ?, ?, ?)
     `).run(taskId, type, JSON.stringify(payload), new Date().toISOString());
   }
 
   public getEvents(taskId: string): TaskEvent[] {
-    const rows = this.db.prepare("SELECT * FROM task_events WHERE task_id = ? ORDER BY id ASC").all(taskId) as Array<Record<string, unknown>>;
+    const rows = this.prepare("SELECT * FROM task_events WHERE task_id = ? ORDER BY id ASC").all(taskId) as Array<Record<string, unknown>>;
     return rows.map((r) => ({
       id: Number(r.id),
       taskId: String(r.task_id),
@@ -194,6 +217,35 @@ export class ArbiterDatabase {
       payload: String(r.payload),
       createdAt: String(r.created_at),
     }));
+  }
+
+  public getMetrics(): DatabaseMetrics {
+    const taskRows = this.prepare("SELECT status, count(*) as cnt FROM tasks GROUP BY status").all() as Array<{ status: string; cnt: number }>;
+    const statusCounts: Record<string, number> = {};
+    let totalTasks = 0;
+    for (const r of taskRows) {
+      statusCounts[r.status] = Number(r.cnt);
+      totalTasks += Number(r.cnt);
+    }
+
+    const leaseRow = this.prepare("SELECT count(*) as cnt FROM worker_leases WHERE status = 'ACTIVE'").get() as { cnt: number } | undefined;
+    const activeLeases = Number(leaseRow?.cnt ?? 0);
+
+    const eventRows = this.prepare("SELECT type, count(*) as cnt FROM task_events GROUP BY type").all() as Array<{ type: string; cnt: number }>;
+    const eventCounts: Record<string, number> = {};
+    let totalEvents = 0;
+    for (const r of eventRows) {
+      eventCounts[r.type] = Number(r.cnt);
+      totalEvents += Number(r.cnt);
+    }
+
+    return {
+      totalTasks,
+      statusCounts,
+      activeLeases,
+      totalEvents,
+      eventCounts,
+    };
   }
 
   private mapTaskRow(row: Record<string, unknown>): TaskRecord {

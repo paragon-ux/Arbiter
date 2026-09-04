@@ -220,6 +220,19 @@ function main(): void {
         break;
       }
 
+      case "metrics": {
+        const metrics = db.getMetrics();
+        const activeWorktrees = worktrees.listWorktrees().filter((w) => w.branch.startsWith("arbiter/task-")).length;
+        console.log(JSON.stringify({
+          ok: true,
+          metrics: {
+            ...metrics,
+            activeWorktrees,
+          },
+        }, null, 2));
+        break;
+      }
+
       default:
         console.log(`Arbiter Multi-Agent Orchestrator CLI
 
@@ -231,6 +244,7 @@ Usage:
   arbiter fail --task <id> --worker <id> --error "<error>"
   arbiter list [--status <PENDING|READY|ASSIGNED|IN_PROGRESS|COMPLETED|FAILED|CONFLICT>]
   arbiter status [<task-id>]
+  arbiter metrics
   arbiter merge [<task-id>] [--target <branch>]
   arbiter recover-lock <task-id> [--force]
   arbiter watchdog [--timeout <sec>] [--no-force]

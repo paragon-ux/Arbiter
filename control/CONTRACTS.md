@@ -20,3 +20,10 @@ Arbiter owns task DAG scheduling, ephemeral Git worktree lifecycle management, a
 ## Merge Contract
 - Merges to target branch (`main`) are processed sequentially.
 - If a task branch does not cleanly merge/fast-forward, it is marked `CONFLICT` and quarantined without corrupting `main`.
+
+## Trajectory Ownership & Workspace Scoping Invariant (W-11)
+- **1:1:1 Invariant**: Exactly one active Task maps to exactly one ephemeral Git worktree (`.arbiter/worktrees/task-<id>`) and exactly one staged Waymark trajectory (`.waymark/`).
+- **Exclusive Write Ownership**: Only the worker process holding the active worker lease in Arbiter SQLite (`worker_leases.status = 'ACTIVE'`) is permitted to write files, create commits, or record hops in that worktree.
+- **Pre-Merge Trajectory Sealing**: No merge to `main` is ever attempted with an active (`STAGED`) trajectory. Trajectories transition to `COMMITTED` at task completion and are permanently immutable thereafter.
+- **Fail-Closed Isolation**: Under conflict or error, trajectories are never overwritten in place. Reconciliation occurs via dedicated reconciliation tasks with fresh worktrees or direct operator review.
+

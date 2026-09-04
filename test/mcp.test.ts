@@ -78,7 +78,7 @@ test("ArbiterMcpServer handles initialize, ping, tools/list, and full agent work
     }));
     assert.ok(listRaw);
     const listRes = JSON.parse(listRaw);
-    assert.equal(listRes.result.tools.length, 10);
+    assert.equal(listRes.result.tools.length, 11);
 
     // 3. Submit a task via MCP
     const submitRes = await callTool(server, "arbiter_submit_task", {
@@ -102,13 +102,19 @@ test("ArbiterMcpServer handles initialize, ping, tools/list, and full agent work
     assert.ok(claimRes.worktree_path);
     assert.ok(claimRes.waymark_trajectory_id);
 
-    // 6. Checkpoint
+    // 6. Checkpoint with Waymark telemetry
     const checkpointRes = await callTool(server, "arbiter_checkpoint", {
       task_id: "T-100",
       worker_id: "agent-gemini",
       message: "Inspected routes and drafted greeting controller",
     });
     assert.equal(checkpointRes.ok, true);
+    assert.ok(checkpointRes.waymark_status);
+
+    // 6b. Observability metrics via MCP
+    const metricsRes = await callTool(server, "arbiter_metrics", {});
+    assert.equal(metricsRes.ok, true);
+    assert.ok(Number((metricsRes.metrics as Record<string, unknown>).totalTasks) >= 1);
 
     // 7. Status check
     const statusRes = await callTool(server, "arbiter_status", { task_id: "T-100" });

@@ -54,7 +54,7 @@ export function createArbiterTools(
   const checkpointTool: McpToolHandler = {
     definition: {
       name: "arbiter_checkpoint",
-      description: "Record an intermediate progress milestone and refresh the worker lease heartbeat.",
+      description: "Record an intermediate progress milestone and refresh the worker lease heartbeat with Waymark telemetry.",
       inputSchema: {
         type: "object",
         properties: {
@@ -80,7 +80,27 @@ export function createArbiterTools(
         const workerId = String(args.worker_id);
         const message = String(args.message);
         taskService.checkpoint(taskId, workerId, message);
-        return jsonResult({ ok: true, task_id: taskId, checkpoint_recorded: true });
+
+        const task = taskService.db.getTask(taskId);
+        let waymarkStatus: { status?: string; trajectoryId?: string | null; totalSteps?: number } | null = null;
+        if (task && task.worktreePath) {
+          try {
+            waymarkStatus = waymark.getStatus(task.worktreePath);
+          } catch {}
+        }
+
+        return jsonResult({
+          ok: true,
+          task_id: taskId,
+          checkpoint_recorded: true,
+          ...(waymarkStatus
+            ? {
+                waymark_status: waymarkStatus.status,
+                waymark_trajectory_id: waymarkStatus.trajectoryId,
+                waymark_total_hops: waymarkStatus.totalSteps,
+              }
+            : {}),
+        });
       } catch (error) {
         return errorResult(error);
       }
@@ -370,6 +390,32 @@ export function createArbiterTools(
     },
   };
 
+  const metricsTool: McpToolHandler = {
+    definition: {
+      name: "arbiter_metrics",
+      description: "Retrieve comprehensive cluster observability metrics, task breakdown, active leases, and event counts.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+    },
+    handler: async () => {
+      try {
+        const metrics = taskService.db.getMetrics();
+        const activeWorktrees = taskService.worktrees.listWorktrees().filter((w) => w.branch.startsWith("arbiter/task-")).length;
+        return jsonResult({
+          ok: true,
+          metrics: {
+            ...metrics,
+            activeWorktrees,
+          },
+        });
+      } catch (error) {
+        return errorResult(error);
+      }
+    },
+  };
+
   return [
     submitTaskTool,
     claimTaskTool,
@@ -381,5 +427,6 @@ export function createArbiterTools(
     mergeQueueTool,
     scanLeasesTool,
     pruneWorktreesTool,
+    metricsTool,
   ];
 }

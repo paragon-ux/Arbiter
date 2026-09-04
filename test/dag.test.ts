@@ -119,3 +119,39 @@ test("TaskGraph transitions PENDING tasks to READY when parents complete", () =>
     db.close();
   }
 });
+
+test("TaskGraph.unblockChildrenOf selectively unblocks only direct child tasks", () => {
+  const db = new ArbiterDatabase(":memory:");
+  const graph = new TaskGraph(db);
+  try {
+    for (const id of ["Root1", "Child1", "Root2", "Child2"]) {
+      db.insertTask({
+        id,
+        title: id,
+        description: id,
+        baseBranch: "main",
+        branch: `arbiter/${id}`,
+        worktreePath: null,
+        assignedWorkerId: null,
+        waymarkTrajectoryId: null,
+        resultAnswer: null,
+        errorMessage: null,
+      });
+    }
+
+    graph.addDependency("Root1", "Child1");
+    graph.addDependency("Root2", "Child2");
+
+    // Complete Root1 only
+    db.updateTask("Root1", { status: "COMPLETED" });
+
+    // Targeted unblock on Root1 should only unblock Child1, leaving Child2 PENDING
+    const unblocked = graph.unblockChildrenOf("Root1");
+    assert.equal(unblocked.length, 1);
+    assert.equal(unblocked[0]?.id, "Child1");
+    assert.equal(db.getTask("Child1")?.status, "READY");
+    assert.equal(db.getTask("Child2")?.status, "PENDING");
+  } finally {
+    db.close();
+  }
+});

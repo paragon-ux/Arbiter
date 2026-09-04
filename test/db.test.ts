@@ -131,3 +131,61 @@ test("Worker leases and task events are recorded and retrieved accurately", () =
     db.close();
   }
 });
+
+test("ArbiterDatabase caches prepared statements and computes cluster metrics", () => {
+  const db = new ArbiterDatabase(":memory:");
+  try {
+    // 1. Check statement caching by executing multiple queries
+    db.insertTask({
+      id: "metric-1",
+      title: "Metric Task 1",
+      description: "Description 1",
+      baseBranch: "main",
+      branch: "arbiter/metric-1",
+      worktreePath: null,
+      assignedWorkerId: null,
+      waymarkTrajectoryId: null,
+      resultAnswer: null,
+      errorMessage: null,
+    });
+    db.insertTask({
+      id: "metric-2",
+      title: "Metric Task 2",
+      description: "Description 2",
+      baseBranch: "main",
+      branch: "arbiter/metric-2",
+      worktreePath: null,
+      assignedWorkerId: null,
+      waymarkTrajectoryId: null,
+      resultAnswer: null,
+      errorMessage: null,
+    });
+
+    db.addDependency("metric-1", "metric-2");
+    const deps = db.getAllDependencies();
+    assert.equal(deps.length, 1);
+    assert.equal(deps[0]?.parent_task_id, "metric-1");
+    assert.equal(deps[0]?.child_task_id, "metric-2");
+
+    db.setWorkerLease({
+      workerId: "agent-metrics",
+      taskId: "metric-1",
+      pid: process.pid,
+      heartbeatAt: new Date().toISOString(),
+      status: "ACTIVE",
+    });
+
+    db.logEvent("metric-1", "task.started", { note: "test" });
+    db.logEvent("metric-1", "task.progress", { pct: 50 });
+
+    const metrics = db.getMetrics();
+    assert.equal(metrics.totalTasks, 2);
+    assert.equal(metrics.statusCounts["PENDING"], 2);
+    assert.equal(metrics.activeLeases, 1);
+    assert.equal(metrics.totalEvents, 2);
+    assert.equal(metrics.eventCounts["task.started"], 1);
+    assert.equal(metrics.eventCounts["task.progress"], 1);
+  } finally {
+    db.close();
+  }
+});

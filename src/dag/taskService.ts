@@ -24,6 +24,8 @@ export interface ClaimTaskResult {
 export class TaskService {
   public readonly graph: TaskGraph;
   public readonly watchdog: LeaseWatchdog;
+  private lastWatchdogScan = 0;
+  private readonly watchdogThrottleMs = 5_000;
 
   constructor(
     public readonly db: ArbiterDatabase,
@@ -66,11 +68,15 @@ export class TaskService {
     return this.db.getTask(id) ?? task;
   }
 
-  public claimNextTask(workerId: string, pid = process.pid): ClaimTaskResult | null {
-    // Reclaim any abandoned or dead worker tasks before dispatch
-    this.watchdog.scanLeases();
+  public claimNextTask(workerId: string, pid = process.pid, options: { forceScan?: boolean } = {}): ClaimTaskResult | null {
+    const now = Date.now();
+    // Throttled watchdog scan to eliminate redundant scans on rapid claims
+    if (options.forceScan || now - this.lastWatchdogScan >= this.watchdogThrottleMs) {
+      this.watchdog.scanLeases();
+      this.lastWatchdogScan = now;
+    }
 
-    // Ensure any ready tasks are updated
+    // Ensure any unblocked ready tasks are updated
     this.graph.updateUnblockedTasks();
     const readyTasks = this.db.getReadyTasks();
     if (readyTasks.length === 0) return null;
@@ -158,8 +164,16 @@ export class TaskService {
       this.waymark.completeTrajectory(task.worktreePath, task.waymarkTrajectoryId, answer);
     }
 
-    // 2. Commit worktree changes if any exist
-    this.worktrees.commitAll(task.worktreePath, `feat(${task.id}): ${task.title}\n\n${answer}`);
+    // 2. Commit worktree changes if any exist (with split-brain compensation)
+    try {
+      this.worktrees.commitAll(task.worktreePath, `feat(${task.id}): ${task.title}\n\n${answer}`);
+    } catch (commitErr) {
+      const err = commitErr as Error;
+      this.db.logEvent(taskId, "task.commit_warning", {
+        error: err.message,
+        note: "Waymark trajectory sealed, but worktree commit threw an error or was empty.",
+      });
+    }
 
     // 3. Mark task completed
     const updated = this.db.updateTask(taskId, {
@@ -171,8 +185,8 @@ export class TaskService {
     // 4. Release worker lease
     this.db.releaseWorkerLease(workerId, taskId);
 
-    // 5. Unblock dependent downstream tasks
-    this.graph.updateUnblockedTasks();
+    // 5. Targeted in-degree update: unblock only direct child tasks
+    this.graph.unblockChildrenOf(taskId);
     this.db.logEvent(taskId, "task.completed", { answer });
 
     return updated;

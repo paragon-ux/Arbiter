@@ -29,6 +29,11 @@ jobs:
       - name: Install from lockfile
         run: npm ci
 
+      - name: Configure Git identity for tests
+        run: |
+          git config --global user.name "CI Agent"
+          git config --global user.email "ci@arbiter.local"
+
       - name: Verify build, tests, public hygiene, and benchmarks
         run: npm run verify
 

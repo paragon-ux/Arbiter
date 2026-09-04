@@ -122,26 +122,33 @@ Arbiter maintains complete parity between agent tools and operator commands:
 | **Merge Queue** | `arbiter_process_merge_queue` | `arbiter merge` | Sequentially merge completed task branches into `main`. |
 | **Watchdog Scan**| `arbiter_scan_leases` | `arbiter watchdog` | Scan active leases for dead PIDs or timeouts and reset tasks. |
 | **Prune Trees** | `arbiter_prune_worktrees` | `arbiter prune` | Delete completed/failed ephemeral worktrees and branches. |
+| **Cluster Metrics**| `arbiter_metrics` | `arbiter metrics` | Inspect task state distribution, active leases, and event counts. |
 
 ---
 
 ## Waymark Trajectory Conflict Handling & Quarantine
 
-A core design invariant is that **Git merge conflicts never destroy or corrupt Waymark continuity data**. The quarantine lifecycle follows a fail-closed sequence:
+A core design invariant is that **Git merge conflicts never destroy or corrupt Waymark continuity data**. The quarantine lifecycle follows a fail-closed sequence (detailed architectural flowchart available as SVG in [Rationale.MD](Rationale.MD)):
 
-```mermaid
-flowchart TD
-    CLAIM["Task Claimed\n(STAGED Trajectory)"] --> WORK["Agent Writes Code &\nRecords waymark_note Hops"]
-    WORK --> COMPLETE["arbiter_complete_task\n(waymark complete -> COMMITTED)"]
-    COMPLETE --> MERGE_ATTEMPT{"Sequential Merge Queue\n(git merge --no-ff)"}
-    MERGE_ATTEMPT -->|Clean Merge| PRUNE["Fast-Forward to main\nPrune Worktree & Delete Branch"]
-    MERGE_ATTEMPT -->|Conflict Detected| ROLLBACK["git merge --abort\n(main instantly clean)"]
-    ROLLBACK --> QUARANTINE["Quarantine Worktree\nTask Status -> CONFLICT\nTrajectory Frozen as COMMITTED"]
-    QUARANTINE --> RECONCILE{"Reconciliation Path"}
-    RECONCILE -->|Path A: Agent Task| CHILD["Fresh Worktree + New Trajectory\nMerge main & Resolve"]
-    RECONCILE -->|Path B: Operator| MANUAL["git merge main in Worktree\nResolve & arbiter merge <id>"]
-    CHILD --> PRUNE
-    MANUAL --> PRUNE
+```
+[1. Task Claimed (STAGED)]
+          │
+          ▼
+[2. Agent Edits & Notes (waymark_note)]
+          │
+          ▼
+[3. Complete Task (waymark complete -> COMMITTED)]
+          │
+          ▼
+<4. Sequential Merge Queue (git merge --no-ff)>
+      ├── Clean Merge ─────────► Fast-forward main, prune worktree & branch
+      └── Conflict Detected ──► git merge --abort (main untouched!)
+                                  │
+                                  ▼
+                               [Quarantine Worktree (CONFLICT)]
+                                  │
+                                  ▼
+                               <Reconciliation: Automated Agent Task OR Manual Operator>
 ```
 
 1. **Pre-Merge Sealing**: Before a merge is attempted, `arbiter_complete_task` seals the trajectory via `waymark complete`. The trajectory transitions to **`COMMITTED`** and becomes permanently immutable.

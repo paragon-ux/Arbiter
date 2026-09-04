@@ -41,18 +41,54 @@ export class TaskGraph {
     return updated;
   }
 
+  public unblockChildrenOf(parentTaskId: string): TaskRecord[] {
+    const childIds = this.db.getChildTaskIds(parentTaskId);
+    const unblocked: TaskRecord[] = [];
+
+    for (const childId of childIds) {
+      const child = this.db.getTask(childId);
+      if (!child || child.status !== "PENDING") {
+        continue;
+      }
+
+      const parentIds = this.db.getParentTaskIds(childId);
+      const allParentsCompleted = parentIds.every((pid) => {
+        const parent = this.db.getTask(pid);
+        return parent?.status === "COMPLETED";
+      });
+
+      if (allParentsCompleted) {
+        const res = this.db.updateTask(childId, { status: "READY" });
+        this.db.logEvent(childId, "task.ready", { reason: "dependencies_satisfied" });
+        unblocked.push(res);
+      }
+    }
+
+    return unblocked;
+  }
+
   public getTopologicalOrder(): TaskRecord[] {
     const allTasks = this.db.listTasks();
     const taskMap = new Map<string, TaskRecord>(allTasks.map((t) => [t.id, t]));
     const inDegree = new Map<string, number>();
+    const parentToChildren = new Map<string, string[]>();
 
     for (const task of allTasks) {
       inDegree.set(task.id, 0);
+      parentToChildren.set(task.id, []);
     }
 
-    for (const task of allTasks) {
-      const parents = this.db.getParentTaskIds(task.id);
-      inDegree.set(task.id, parents.length);
+    const allDeps = this.db.getAllDependencies();
+    for (const dep of allDeps) {
+      if (inDegree.has(dep.child_task_id)) {
+        inDegree.set(dep.child_task_id, (inDegree.get(dep.child_task_id) ?? 0) + 1);
+      }
+      const children = parentToChildren.get(dep.parent_task_id);
+      if (children) {
+        children.push(dep.child_task_id);
+      } else {
+        parentToChildren.set(dep.parent_task_id, [dep.child_task_id]);
+      }
     }
 
     const queue: string[] = [];
@@ -66,7 +102,7 @@ export class TaskGraph {
       const task = taskMap.get(currentId);
       if (task) order.push(task);
 
-      const children = this.db.getChildTaskIds(currentId);
+      const children = parentToChildren.get(currentId) ?? [];
       for (const childId of children) {
         const currentDeg = (inDegree.get(childId) ?? 1) - 1;
         inDegree.set(childId, currentDeg);
