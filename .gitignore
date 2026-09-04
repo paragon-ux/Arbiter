@@ -4,3 +4,6 @@ dist/
 .waymark/
 .tmp-*/
 *.tsbuildinfo
+target/
+crates/**/target/
+*.node

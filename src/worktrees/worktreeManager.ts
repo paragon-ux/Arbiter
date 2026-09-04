@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import {
+  isNativeKernelAvailable,
+  nativeAddWorktree,
+  nativePruneWorktree,
+  nativeStageAndCommit,
+} from "../native/nativeKernel.js";
 
 export interface WorktreeInfo {
   path: string;
@@ -44,6 +50,15 @@ export class WorktreeManager {
       this.git(["branch", "-D", branch]);
     } catch {}
 
+    // Delegate to native kernel if available
+    if (isNativeKernelAvailable()) {
+      const nativeRes = nativeAddWorktree(this.repoRoot, `task-${taskId}`, targetDir, branch, baseBranch);
+      if (nativeRes && nativeRes.success) {
+        const canonicalPath = fs.realpathSync.native(targetDir);
+        return { path: canonicalPath, branch };
+      }
+    }
+
     // git worktree add -b <branch> <targetDir> <baseBranch>
     this.git(["worktree", "add", "-b", branch, targetDir, baseBranch]);
 
@@ -53,6 +68,12 @@ export class WorktreeManager {
 
   public removeWorktree(taskId: string): void {
     const targetDir = this.getWorktreePathForTask(taskId);
+    if (isNativeKernelAvailable()) {
+      const pruned = nativePruneWorktree(this.repoRoot, `task-${taskId}`, targetDir);
+      if (pruned && pruned.success) {
+        return;
+      }
+    }
     try {
       this.git(["worktree", "remove", "--force", targetDir]);
     } catch {
@@ -111,6 +132,12 @@ export class WorktreeManager {
   }
 
   public commitAll(worktreePath: string, message: string): boolean {
+    if (isNativeKernelAvailable()) {
+      const nativeRes = nativeStageAndCommit(worktreePath, message);
+      if (nativeRes && nativeRes.success) {
+        return true;
+      }
+    }
     this.gitIn(worktreePath, ["add", "-A"]);
     const status = this.gitIn(worktreePath, ["status", "--porcelain"]).trim();
     if (!status) return false; // Nothing to commit

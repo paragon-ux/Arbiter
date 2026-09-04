@@ -1,0 +1,17 @@
+[package]
+name = "arbiter-kernel"
+version = "2.0.0"
+edition = "2021"
+description = "Arbiter native execution kernel for in-process libgit2 worktrees and Win32 Job Object process sandboxing."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2.16", default-features = false, features = ["napi4"] }
+napi-derive = "2.16"
+git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
+
+[build-dependencies]
+napi-build = "2.1"

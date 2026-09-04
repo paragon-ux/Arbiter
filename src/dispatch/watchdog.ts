@@ -2,6 +2,13 @@ import process from "node:process";
 import { ArbiterDatabase } from "../db/database.js";
 import { WorktreeManager } from "../worktrees/worktreeManager.js";
 import { WaymarkSupervisor } from "../waymark/waymarkSupervisor.js";
+import {
+  isNativeKernelAvailable,
+  nativeCreateJob,
+  nativeAssignProcessToJob,
+  nativeTerminateJob,
+  nativeCloseJob,
+} from "../native/nativeKernel.js";
 
 export interface ScanOptions {
   heartbeatTimeoutMs?: number;
@@ -27,11 +34,40 @@ export interface ScanResult {
 }
 
 export class LeaseWatchdog {
+  private readonly workerJobs = new Map<string, number>();
+
   constructor(
     private readonly db: ArbiterDatabase,
     private readonly worktrees: WorktreeManager,
     private readonly waymark: WaymarkSupervisor,
   ) {}
+
+  public sandboxWorker(workerId: string, pid: number): number | null {
+    if (!isNativeKernelAvailable()) return null;
+    const jobId = nativeCreateJob();
+    if (jobId !== null) {
+      nativeAssignProcessToJob(jobId, pid);
+      this.workerJobs.set(workerId, jobId);
+    }
+    return jobId;
+  }
+
+  public evictWorkerSandbox(workerId: string): void {
+    const jobId = this.workerJobs.get(workerId);
+    if (jobId !== undefined) {
+      nativeTerminateJob(jobId, 1);
+      nativeCloseJob(jobId);
+      this.workerJobs.delete(workerId);
+    }
+  }
+
+  public releaseWorkerSandbox(workerId: string): void {
+    const jobId = this.workerJobs.get(workerId);
+    if (jobId !== undefined) {
+      nativeCloseJob(jobId);
+      this.workerJobs.delete(workerId);
+    }
+  }
 
   public isPidAlive(pid: number): boolean {
     if (pid <= 0) return false;
@@ -69,8 +105,9 @@ export class LeaseWatchdog {
           ? `Worker process PID ${lease.pid} is no longer running`
           : `Heartbeat timed out (${Math.round(heartbeatAgeMs / 1000)}s > ${Math.round(timeoutMs / 1000)}s)`;
 
-        // 1. Expire lease in database
+        // 1. Expire lease in database and evict sandboxed process tree
         this.db.expireWorkerLease(lease.workerId, lease.taskId);
+        this.evictWorkerSandbox(lease.workerId);
 
         // 2. Inspect task state
         const task = this.db.getTask(lease.taskId);
