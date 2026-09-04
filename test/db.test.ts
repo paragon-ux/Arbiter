@@ -189,3 +189,84 @@ test("ArbiterDatabase caches prepared statements and computes cluster metrics", 
     db.close();
   }
 });
+
+test("claimReadyTask performs atomic CAS claim and rejects second worker", () => {
+  const db = new ArbiterDatabase(":memory:");
+  try {
+    db.insertTask({
+      id: "cas-task-1",
+      title: "CAS Task",
+      description: "Testing Atomic CAS",
+      baseBranch: "main",
+      branch: "arbiter/cas-task-1",
+      worktreePath: null,
+      assignedWorkerId: null,
+      waymarkTrajectoryId: null,
+      resultAnswer: null,
+      errorMessage: null,
+    });
+
+    // Worker 1 claims task
+    const claim1 = db.claimReadyTask("worker-1", 1111);
+    assert.ok(claim1);
+    assert.equal(claim1.task.id, "cas-task-1");
+    assert.equal(claim1.task.status, "ASSIGNED");
+    assert.equal(claim1.task.assignedWorkerId, "worker-1");
+    assert.equal(claim1.lease.status, "ACTIVE");
+
+    // Worker 2 attempts claim concurrently -> returns null (EAGAIN backoff)
+    const claim2 = db.claimReadyTask("worker-2", 2222);
+    assert.equal(claim2, null);
+  } finally {
+    db.close();
+  }
+});
+
+test("Partial unique index prevents duplicate active leases for the same task", () => {
+  const db = new ArbiterDatabase(":memory:");
+  try {
+    db.insertTask({
+      id: "lease-mutex-task",
+      title: "Lease Mutex Task",
+      description: "Testing Lease Mutual Exclusion",
+      baseBranch: "main",
+      branch: "arbiter/lease-mutex-task",
+      worktreePath: null,
+      assignedWorkerId: null,
+      waymarkTrajectoryId: null,
+      resultAnswer: null,
+      errorMessage: null,
+    });
+
+    // Worker 1 acquires active lease
+    db.setWorkerLease({
+      workerId: "worker-A",
+      taskId: "lease-mutex-task",
+      pid: 101,
+      heartbeatAt: new Date().toISOString(),
+      status: "ACTIVE",
+    });
+
+    // Worker 2 attempts to insert active lease directly -> throws SQLite constraint violation
+    assert.throws(() => {
+      db.db.prepare(`
+        INSERT INTO worker_leases (worker_id, task_id, pid, heartbeat_at, status)
+        VALUES ('worker-B', 'lease-mutex-task', 102, datetime('now'), 'ACTIVE')
+      `).run();
+    }, /UNIQUE constraint failed/);
+
+    // After Worker 1 releases lease, Worker 2 can acquire active lease
+    db.releaseWorkerLease("worker-A", "lease-mutex-task");
+    db.db.prepare(`
+      INSERT INTO worker_leases (worker_id, task_id, pid, heartbeat_at, status)
+      VALUES ('worker-B', 'lease-mutex-task', 102, datetime('now'), 'ACTIVE')
+    `).run();
+
+    const activeLeases = db.listActiveLeases();
+    assert.equal(activeLeases.length, 1);
+    assert.equal(activeLeases[0]?.workerId, "worker-B");
+  } finally {
+    db.close();
+  }
+});
+

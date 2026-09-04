@@ -29,7 +29,11 @@ export class MergeQueue {
     const branch = this.worktrees.getBranchNameForTask(taskId);
 
     try {
-      // 1. Ensure primary repo is clean and on targetBranch
+      // 1. Ensure primary repo is clean and on targetBranch (P3 #12)
+      const status = this.git(["status", "--porcelain"]).trim();
+      if (status) {
+        throw new Error(`Cannot perform merge: primary repo working tree has uncommitted changes:\n${status}`);
+      }
       this.git(["checkout", targetBranch]);
 
       // 2. Attempt merge
@@ -85,8 +89,8 @@ export class MergeQueue {
       const res = this.mergeTask(task.id, targetBranch);
       results.push(res);
       if (res.conflict) {
-        // Stop sequential queue on conflict to avoid cascading failures
-        break;
+        // Quarantine conflicting branch and continue merging independent non-conflicting tasks (P2 #6)
+        continue;
       }
     }
     return results;

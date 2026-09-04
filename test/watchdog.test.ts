@@ -213,3 +213,43 @@ test("TaskService automatically triggers watchdog scan on claimNextTask", () => 
     cleanup();
   }
 });
+
+test("TaskService.completeTask marks task FAILED and releases lease if worktrees.commitAll throws", () => {
+  const { repoRoot, cleanup } = setupFixtureRepo();
+  try {
+    const db = new ArbiterDatabase(":memory:");
+    const worktrees = new WorktreeManager(repoRoot);
+    const waymark = new WaymarkSupervisor();
+    const taskService = new TaskService(db, worktrees, waymark);
+
+    taskService.submitTask({
+      title: "Commit Failure Test",
+      description: "Desc",
+      dependencies: [],
+    });
+
+    const claim = taskService.claimNextTask("worker-fail");
+    assert.ok(claim);
+    const taskId = claim.task.id;
+
+    // Simulate commit failure by sabotaging worktrees.commitAll
+    worktrees.commitAll = () => {
+      throw new Error("Git lock collision simulated error");
+    };
+
+    // completeTask should re-throw the error, mark task FAILED, and release the active lease
+    assert.throws(() => {
+      taskService.completeTask(taskId, "worker-fail", "Answer");
+    }, /Git lock collision simulated error/);
+
+    const task = db.getTask(taskId);
+    assert.equal(task?.status, "FAILED");
+    assert.match(task?.errorMessage ?? "", /Git lock collision simulated error/);
+
+    const lease = db.getWorkerLease(taskId);
+    assert.equal(lease, null); // No ACTIVE lease remaining
+  } finally {
+    cleanup();
+  }
+});
+

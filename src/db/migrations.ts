@@ -57,6 +57,14 @@ CREATE INDEX IF NOT EXISTS idx_worker_leases_task ON worker_leases(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id);
 `;
 
+export const MIGRATION_V2 = `
+-- Enforce single active lease per task across entire database (P1 #4)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_single_active_task_lease ON worker_leases(task_id) WHERE status = 'ACTIVE';
+
+-- Index claimable tasks for sub-millisecond atomic CAS dispatch
+CREATE INDEX IF NOT EXISTS idx_tasks_claimable ON tasks(status, created_at) WHERE status IN ('PENDING', 'READY');
+`;
+
 export function applyMigrations(db: DatabaseSync): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec(`
@@ -73,4 +81,10 @@ export function applyMigrations(db: DatabaseSync): void {
     db.exec(MIGRATION_V1);
     db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(1, new Date().toISOString());
   }
+
+  if (currentVersion < 2) {
+    db.exec(MIGRATION_V2);
+    db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(2, new Date().toISOString());
+  }
 }
+

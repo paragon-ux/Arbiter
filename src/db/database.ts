@@ -159,6 +159,78 @@ export class ArbiterDatabase {
     return rows.map((r) => this.mapTaskRow(r));
   }
 
+  public claimReadyTask(workerId: string, pid: number): { task: TaskRecord; lease: WorkerLease } | null {
+    // Atomically select, claim, and assign exactly one ready task under BEGIN IMMEDIATE transaction
+    this.db.exec("BEGIN IMMEDIATE;");
+    try {
+      const selectSql = `
+        SELECT t.* FROM tasks t
+        WHERE t.status IN ('PENDING', 'READY')
+        AND NOT EXISTS (
+          SELECT 1 FROM task_dependencies d
+          JOIN tasks p ON d.parent_task_id = p.id
+          WHERE d.child_task_id = t.id AND p.status != 'COMPLETED'
+        )
+        ORDER BY t.created_at ASC
+        LIMIT 1
+      `;
+      const row = this.prepare(selectSql).get() as Record<string, unknown> | undefined;
+      if (!row) {
+        this.db.exec("COMMIT;");
+        return null;
+      }
+
+      const taskId = String(row.id);
+      const now = new Date().toISOString();
+
+      // Atomic CAS: ensure status has not transitioned since candidate selection
+      const updateStmt = this.prepare(`
+        UPDATE tasks SET
+          status = 'ASSIGNED',
+          assigned_worker_id = ?,
+          updated_at = ?
+        WHERE id = ? AND status IN ('PENDING', 'READY')
+      `);
+      const updateResult = updateStmt.run(workerId, now, taskId);
+
+      // Check if another worker won the CAS race
+      const changes = (updateResult as { changes?: number })?.changes ?? 1;
+      if (changes === 0) {
+        this.db.exec("COMMIT;");
+        return null;
+      }
+
+      // Atomically register active worker lease (enforcing unique active lease index)
+      this.prepare(`
+        INSERT INTO worker_leases (worker_id, task_id, pid, heartbeat_at, status)
+        VALUES (?, ?, ?, ?, 'ACTIVE')
+        ON CONFLICT(worker_id, task_id) DO UPDATE SET
+          pid = excluded.pid,
+          heartbeat_at = excluded.heartbeat_at,
+          status = 'ACTIVE'
+      `).run(workerId, taskId, pid, now);
+
+      this.db.exec("COMMIT;");
+
+      const task = this.getTask(taskId)!;
+      const lease: WorkerLease = {
+        workerId,
+        taskId,
+        pid,
+        heartbeatAt: now,
+        status: "ACTIVE",
+      };
+
+      return { task, lease };
+    } catch (err) {
+      try {
+        this.db.exec("ROLLBACK;");
+      } catch {}
+      throw err;
+    }
+  }
+
+
   public setWorkerLease(lease: WorkerLease): void {
     this.prepare(`
       INSERT INTO worker_leases (worker_id, task_id, pid, heartbeat_at, status)

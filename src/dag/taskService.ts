@@ -78,17 +78,12 @@ export class TaskService {
 
     // Ensure any unblocked ready tasks are updated
     this.graph.updateUnblockedTasks();
-    const readyTasks = this.db.getReadyTasks();
-    if (readyTasks.length === 0) return null;
 
-    const task = readyTasks[0];
-    if (!task) return null;
+    // Atomic CAS: select and transition candidate task under BEGIN IMMEDIATE
+    const claim = this.db.claimReadyTask(workerId, pid);
+    if (!claim) return null;
 
-    // Transition to ASSIGNED
-    this.db.updateTask(task.id, {
-      status: "ASSIGNED",
-      assignedWorkerId: workerId,
-    });
+    const { task } = claim;
 
     try {
       // 1. Create worktree
@@ -103,15 +98,6 @@ export class TaskService {
         status: "IN_PROGRESS",
         worktreePath,
         waymarkTrajectoryId: trajectoryId,
-      });
-
-      // 4. Set worker lease
-      this.db.setWorkerLease({
-        workerId,
-        taskId: task.id,
-        pid,
-        heartbeatAt: new Date().toISOString(),
-        status: "ACTIVE",
       });
 
       this.db.logEvent(task.id, "task.claimed", { workerId, pid, worktreePath, trajectoryId });
@@ -130,6 +116,7 @@ export class TaskService {
         assignedWorkerId: null,
         errorMessage: `Failed during claim provisioning: ${err.message}`,
       });
+      this.db.releaseWorkerLease(workerId, task.id);
       throw error;
     }
   }
@@ -139,10 +126,21 @@ export class TaskService {
     if (!lease || lease.workerId !== workerId) {
       throw new Error(`Worker ${workerId} does not hold active lease for task ${taskId}`);
     }
+
+    const task = this.db.getTask(taskId);
+    if (!task || task.status !== "IN_PROGRESS" || !task.worktreePath) {
+      throw new Error(`Task ${taskId} is not IN_PROGRESS with a valid worktree`);
+    }
+
+    // Commit current working tree snapshot
+    this.worktrees.commitAll(task.worktreePath, `checkpoint(${taskId}): ${message}`);
+
+    // Update lease heartbeat
     this.db.setWorkerLease({
       ...lease,
       heartbeatAt: new Date().toISOString(),
     });
+
     this.db.logEvent(taskId, "task.checkpoint", { workerId, message });
   }
 
@@ -156,7 +154,7 @@ export class TaskService {
     }
 
     if (!task.worktreePath) {
-      throw new Error(`Task ${taskId} missing worktree path`);
+      throw new Error(`Task ${taskId} does not have a provisioned worktree`);
     }
 
     // 1. Finalize Waymark active trajectory
@@ -164,15 +162,21 @@ export class TaskService {
       this.waymark.completeTrajectory(task.worktreePath, task.waymarkTrajectoryId, answer);
     }
 
-    // 2. Commit worktree changes if any exist (with split-brain compensation)
+    // 2. Commit worktree changes if any exist (P2 #9: fail task if commit throws)
     try {
       this.worktrees.commitAll(task.worktreePath, `feat(${task.id}): ${task.title}\n\n${answer}`);
     } catch (commitErr) {
       const err = commitErr as Error;
-      this.db.logEvent(taskId, "task.commit_warning", {
+      this.db.logEvent(taskId, "task.commit_error", {
         error: err.message,
-        note: "Waymark trajectory sealed, but worktree commit threw an error or was empty.",
+        note: "Worktree commit failed. Task marked FAILED to prevent unblocking downstream tasks without commits.",
       });
+      this.db.updateTask(taskId, {
+        status: "FAILED",
+        errorMessage: `Failed to commit worktree changes: ${err.message}`,
+      });
+      this.db.releaseWorkerLease(workerId, taskId);
+      throw commitErr;
     }
 
     // 3. Mark task completed
