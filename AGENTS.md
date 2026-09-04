@@ -2,6 +2,11 @@
 
 Arbiter is a local-first multi-agent task orchestration engine and worktree supervisor. It coordinates parallel coding agents across isolated Git worktrees with Waymark continuity and Capn memory integration.
 
+## Suite Boundaries & Invariants
+- **Ecosystem Role**: `Arbiter` coordinates multi-agent task DAGs and Git worktrees, delegating in-flight code continuity to `Waymark` and static rule survival to `codex-agents-compact-reload`.
+- **The 1:1:1 Invariant**: Every worker claimed task MUST operate strictly within its assigned worktree (`.arbiter/worktrees/task-<id>`) with its isolated Waymark trajectory. Never modify root files or cross task boundaries.
+- See `README.md` for full cross-repository architecture specifications.
+
 ## Agent Workflow & MCP Protocol
 
 Agents interacting with Arbiter use native MCP tools:
