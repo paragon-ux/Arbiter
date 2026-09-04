@@ -100,3 +100,9 @@ pub fn kernel_stage_and_commit(
         Err(e) => Err(napi::Error::from_reason(e)),
     }
 }
+
+#[napi]
+pub fn kernel_delete_branch(repo_path: String, branch_name: String) -> napi::Result<bool> {
+    git_engine::delete_branch(&repo_path, &branch_name).map_err(|e| napi::Error::from_reason(e))
+}
+

@@ -12,6 +12,8 @@ export interface MergeResult {
 }
 
 export class MergeQueue {
+  private currentCheckedOutBranch: string | null = null;
+
   constructor(
     public readonly db: ArbiterDatabase,
     public readonly worktrees: WorktreeManager,
@@ -34,7 +36,10 @@ export class MergeQueue {
       if (status) {
         throw new Error(`Cannot perform merge: primary repo working tree has uncommitted changes:\n${status}`);
       }
-      this.git(["checkout", targetBranch]);
+      if (this.currentCheckedOutBranch !== targetBranch) {
+        this.git(["checkout", targetBranch]);
+        this.currentCheckedOutBranch = targetBranch;
+      }
 
       // 2. Attempt merge
       this.git(["merge", "--no-ff", branch, "-m", `Merge task ${task.id}: ${task.title}`]);

@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import {
   isNativeKernelAvailable,
   nativeAddWorktree,
+  nativeDeleteBranch,
   nativePruneWorktree,
   nativeStageAndCommit,
 } from "../native/nativeKernel.js";
@@ -45,11 +46,6 @@ export class WorktreeManager {
       this.removeWorktree(taskId);
     }
 
-    // Ensure branch doesn't already exist from stale run
-    try {
-      this.git(["branch", "-D", branch]);
-    } catch {}
-
     // Delegate to native kernel if available
     if (isNativeKernelAvailable()) {
       const nativeRes = nativeAddWorktree(this.repoRoot, `task-${taskId}`, targetDir, branch, baseBranch);
@@ -58,6 +54,11 @@ export class WorktreeManager {
         return { path: canonicalPath, branch };
       }
     }
+
+    // Ensure branch doesn't already exist from stale run in CLI fallback
+    try {
+      this.git(["branch", "-D", branch]);
+    } catch {}
 
     // git worktree add -b <branch> <targetDir> <baseBranch>
     this.git(["worktree", "add", "-b", branch, targetDir, baseBranch]);
@@ -89,6 +90,11 @@ export class WorktreeManager {
 
   public deleteBranch(taskId: string): void {
     const branch = this.getBranchNameForTask(taskId);
+    if (isNativeKernelAvailable()) {
+      if (nativeDeleteBranch(this.repoRoot, branch)) {
+        return;
+      }
+    }
     try {
       this.git(["branch", "-D", branch]);
     } catch {}

@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 
 export interface WorktreeNativeResult {
   success: boolean;
@@ -56,6 +57,7 @@ interface RawNativeKernel {
     commitId: string;
     elapsedUs: number;
   };
+  kernelDeleteBranch(repoPath: string, branchName: string): boolean;
 }
 
 let nativeKernelModule: RawNativeKernel | null = null;
@@ -67,7 +69,15 @@ export function getNativeKernel(): RawNativeKernel | null {
 
   try {
     const req = createRequire(import.meta.url);
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
     const candidatePaths = [
+      path.resolve(moduleDir, "../../native/arbiter-kernel.node"),
+      path.resolve(moduleDir, "../../../dist/native/arbiter-kernel.node"),
+      path.resolve(moduleDir, "../../dist/native/arbiter-kernel.node"),
+      path.resolve(moduleDir, "../../../crates/arbiter-kernel/target/release/arbiter_kernel.node"),
+      path.resolve(moduleDir, "../../../crates/arbiter-kernel/target/release/arbiter_kernel.dll"),
+      path.resolve(moduleDir, "../../../crates/arbiter-kernel/target/debug/arbiter_kernel.node"),
+      path.resolve(moduleDir, "../../../crates/arbiter-kernel/target/debug/arbiter_kernel.dll"),
       path.resolve(process.cwd(), "dist/native/arbiter-kernel.node"),
       path.resolve(process.cwd(), "crates/arbiter-kernel/target/release/arbiter_kernel.node"),
       path.resolve(process.cwd(), "crates/arbiter-kernel/target/release/arbiter_kernel.dll"),
@@ -199,3 +209,14 @@ export function nativeStageAndCommit(
     return null;
   }
 }
+
+export function nativeDeleteBranch(repoPath: string, branchName: string): boolean {
+  const k = getNativeKernel();
+  if (!k) return false;
+  try {
+    return Boolean(k.kernelDeleteBranch(repoPath, branchName));
+  } catch {
+    return false;
+  }
+}
+

@@ -1,4 +1,4 @@
-﻿use std::path::Path;
+use std::path::Path;
 use std::time::Instant;
 use git2::{Repository, WorktreeAddOptions, WorktreePruneOptions, IndexAddOption, Signature, build::CheckoutBuilder};
 
@@ -132,3 +132,16 @@ pub fn stage_and_commit(
         elapsed_us: start.elapsed().as_micros() as u64,
     })
 }
+
+pub fn delete_branch(repo_path: &str, branch_name: &str) -> Result<bool, String> {
+    let repo = Repository::open(repo_path).map_err(|e| format!("Failed to open repo: {}", e))?;
+    let deleted = match repo.find_branch(branch_name, git2::BranchType::Local) {
+        Ok(mut branch) => {
+            branch.delete().map_err(|e| format!("Failed to delete branch '{}': {}", branch_name, e))?;
+            true
+        }
+        Err(_) => false,
+    };
+    Ok(deleted)
+}
+
