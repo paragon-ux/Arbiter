@@ -133,7 +133,7 @@ Antigravity-Project/
     │   ├── waymark/                   # WaymarkSupervisor (CLI bridge, auto-init, trajectory seal)
     │   ├── merge/                     # MergeQueue (sequential merge to main & conflict quarantine)
     │   ├── dispatch/                  # LeaseWatchdog (dead-PID detection via process.kill(pid, 0))
-    │   ├── mcp/                       # JSON-RPC 2.0 stdio MCP server (10 native tools)
+    │   ├── mcp/                       # JSON-RPC 2.0 stdio MCP server (11 native tools)
     │   └── cli/                       # Operator CLI (submit, claim, checkpoint, complete, merge)
     └── test/                          # 14 unit & integration test suites
 ```
