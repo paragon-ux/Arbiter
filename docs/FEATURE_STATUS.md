@@ -1,6 +1,6 @@
 # Arbiter Subsystem Feature Status Matrix
 
-**Document Version:** 2.1.0-PROD  
+**Document Version:** 2.1.1-PROD  
 **Canonical Scope:** `Arbiter` Subsystem Implementation Inventory
 
 | Subsystem | Component / Module | Implementation Status | Implementation Notes |

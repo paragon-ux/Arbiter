@@ -1,6 +1,6 @@
 {
   "name": "arbiter",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "private": true,
   "description": "Local-first multi-agent task orchestration engine and worktree supervisor with Waymark continuity.",
   "type": "module",
@@ -41,7 +41,9 @@
     "check:claims": "node scripts/claims-check.mjs",
     "check:hygiene": "node scripts/claims-hygiene.mjs",
     "check:checklist": "node scripts/check-checklist.mjs",
-    "verify": "npm run build && node --test \"dist/test/**/*.test.js\" && node scripts/public-check.mjs && node scripts/benchmark.mjs && npm run check:claims && npm run check:hygiene && npm run check:checklist"
+    "check:version": "node scripts/bump-version.mjs --check",
+    "bump:version": "node scripts/bump-version.mjs",
+    "verify": "npm run build && node --test \"dist/test/**/*.test.js\" && node scripts/public-check.mjs && node scripts/benchmark.mjs && npm run check:claims && npm run check:hygiene && npm run check:checklist && npm run check:version"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
