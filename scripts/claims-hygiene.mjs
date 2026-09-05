@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 
 /**
  * Claims & Anti-Mock Hygiene Linter (Arbiter)
@@ -22,7 +22,8 @@ const BANNED_PATTERNS = [
 
 const TARGET_FILES = [
   'README.md',
-  'FEATURE_STATUS.md',
+  'docs/FEATURE_STATUS.md',
+  'docs/Rationale.MD',
   'CLAIMS.md'
 ];
 

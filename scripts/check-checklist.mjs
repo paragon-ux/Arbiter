@@ -17,8 +17,12 @@ const rootDir = resolve(__dirname, '..');
 const candidates = [
   resolve(rootDir, 'REMEDIATION_AND_ANTI_REGRESSION_CHECKLIST.md'),
   resolve(rootDir, '2.1.0', 'REMEDIATION_AND_ANTI_REGRESSION_CHECKLIST.md'),
+  resolve(rootDir, 'docs', 'REMEDIATION_AND_ANTI_REGRESSION_CHECKLIST.md'),
+  resolve(rootDir, 'docs', '2.1.0', 'REMEDIATION_AND_ANTI_REGRESSION_CHECKLIST.md'),
   resolve(rootDir, '..', 'REMEDIATION_AND_ANTI_REGRESSION_CHECKLIST.md'),
-  resolve(rootDir, '..', '2.1.0', 'REMEDIATION_AND_ANTI_REGRESSION_CHECKLIST.md')
+  resolve(rootDir, '..', '2.1.0', 'REMEDIATION_AND_ANTI_REGRESSION_CHECKLIST.md'),
+  resolve(rootDir, '..', 'docs', 'REMEDIATION_AND_ANTI_REGRESSION_CHECKLIST.md'),
+  resolve(rootDir, '..', 'docs', '2.1.0', 'REMEDIATION_AND_ANTI_REGRESSION_CHECKLIST.md')
 ];
 const checklistPath = candidates.find(existsSync);
 

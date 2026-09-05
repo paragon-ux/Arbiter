@@ -143,6 +143,7 @@ Antigravity-Project/
     │   ├── dispatch/                  # LeaseWatchdog (dead-PID detection via process.kill(pid, 0))
     │   ├── mcp/                       # JSON-RPC 2.0 stdio MCP server (11 native tools)
     │   └── cli/                       # Operator CLI (submit, claim, checkpoint, complete, merge)
+    ├── docs/                          # Architecture rationale, operator guide & feature status
     └── test/                          # 11 unit & integration test suites (28 tests)
 ```
 
