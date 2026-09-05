@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { describe } from "node:test";
 import { ArbiterDatabase } from "../src/db/database.js";
 
+describe("Arbiter Database & Migrations Suite", () => {
 test("ArbiterDatabase initializes in-memory, applies migrations, and performs task CRUD", () => {
   const db = new ArbiterDatabase(":memory:");
   try {
@@ -268,5 +269,6 @@ test("Partial unique index prevents duplicate active leases for the same task", 
   } finally {
     db.close();
   }
+});
 });
 

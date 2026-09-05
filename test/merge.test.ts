@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { describe } from "node:test";
 import { execFileSync } from "node:child_process";
 import { ArbiterDatabase } from "../src/db/database.js";
 import { WorktreeManager } from "../src/worktrees/worktreeManager.js";
 import { MergeQueue } from "../src/merge/mergeQueue.js";
+
+describe("MergeQueue & Fail-Closed Quarantine Suite", () => {
 
 function setupFixtureRepo(): { repoRoot: string; cleanup: () => void } {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "arbiter-merge-test-"));
@@ -241,5 +243,6 @@ test("MergeQueue.mergeAllCompleted continues past conflicting tasks and merges o
   } finally {
     cleanup();
   }
+});
 });
 

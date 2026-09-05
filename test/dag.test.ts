@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { describe } from "node:test";
 import { ArbiterDatabase } from "../src/db/database.js";
 import { TaskGraph } from "../src/dag/taskGraph.js";
 
+describe("TaskGraph DAG Scheduling Suite", () => {
 test("TaskGraph detects direct and indirect cycles and rejects them", () => {
   const db = new ArbiterDatabase(":memory:");
   const graph = new TaskGraph(db);
@@ -154,4 +155,5 @@ test("TaskGraph.unblockChildrenOf selectively unblocks only direct child tasks",
   } finally {
     db.close();
   }
+});
 });

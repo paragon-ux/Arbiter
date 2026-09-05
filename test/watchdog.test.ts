@@ -2,13 +2,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { describe } from "node:test";
 import { execFileSync } from "node:child_process";
 import { ArbiterDatabase } from "../src/db/database.js";
 import { WorktreeManager } from "../src/worktrees/worktreeManager.js";
 import { WaymarkSupervisor } from "../src/waymark/waymarkSupervisor.js";
 import { LeaseWatchdog } from "../src/dispatch/watchdog.js";
 import { TaskService } from "../src/dag/taskService.js";
+
+describe("Lease Watchdog & Heartbeat Recovery Suite", () => {
 
 function setupFixtureRepo(): { repoRoot: string; cleanup: () => void } {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "arbiter-watchdog-test-"));
@@ -251,5 +253,6 @@ test("TaskService.completeTask marks task FAILED and releases lease if worktrees
   } finally {
     cleanup();
   }
+});
 });
 

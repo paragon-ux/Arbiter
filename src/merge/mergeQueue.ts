@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { ArbiterDatabase } from "../db/database.js";
 import { WorktreeManager } from "../worktrees/worktreeManager.js";
@@ -9,16 +11,67 @@ export interface MergeResult {
   merged: boolean;
   conflict?: boolean;
   reason?: string;
+  reconciliationTaskId?: string;
 }
 
 export class MergeQueue {
-  private currentCheckedOutBranch: string | null = null;
-
   constructor(
     public readonly db: ArbiterDatabase,
     public readonly worktrees: WorktreeManager,
     public readonly repoRoot: string,
   ) {}
+
+  public getMergeSandboxPath(): string {
+    return path.join(this.repoRoot, ".arbiter", "merge-sandbox");
+  }
+
+  public ensureMergeSandbox(targetBranch = "main"): string {
+    const sandboxPath = this.getMergeSandboxPath();
+    if (!fs.existsSync(sandboxPath)) {
+      // Provision dedicated merge sandbox worktree
+      this.git(["worktree", "add", "-f", sandboxPath, targetBranch]);
+    } else {
+      // Ensure sandbox is clean and on targetBranch
+      try {
+        this.gitIn(sandboxPath, ["merge", "--abort"]);
+      } catch {}
+      try {
+        this.gitIn(sandboxPath, ["checkout", "-f", targetBranch]);
+        this.gitIn(sandboxPath, ["clean", "-fd"]);
+      } catch {}
+    }
+
+    return sandboxPath;
+  }
+
+  public spawnReconciliationTask(taskId: string, targetBranch: string, detail: string): string {
+    const task = this.db.getTask(taskId);
+    const reconcileId = `reconcile-${taskId}`;
+
+    const existing = this.db.getTask(reconcileId);
+    if (existing) return existing.id;
+
+    const title = `Reconcile Conflict: ${task ? task.title : taskId}`;
+    const description = `Automated conflict reconciliation task spawned for ${taskId} on branch ${targetBranch}.\n\nConflict Details:\n${detail}`;
+
+    this.db.insertTask({
+      id: reconcileId,
+      title,
+      description,
+      baseBranch: targetBranch,
+      branch: `arbiter/${reconcileId}`,
+      status: "PENDING",
+      worktreePath: null,
+      assignedWorkerId: null,
+      waymarkTrajectoryId: null,
+      resultAnswer: null,
+      errorMessage: null,
+    });
+
+    this.db.addDependency(taskId, reconcileId);
+    this.db.logEvent(reconcileId, "task.reconciliation_spawned", { parentTaskId: taskId, targetBranch, error: detail });
+    return reconcileId;
+  }
 
   public mergeTask(taskId: string, targetBranch = "main"): MergeResult {
     const task = this.db.getTask(taskId);
@@ -29,22 +82,29 @@ export class MergeQueue {
     }
 
     const branch = this.worktrees.getBranchNameForTask(taskId);
+    const sandboxPath = this.ensureMergeSandbox(targetBranch);
+
+    let repoRootWasCleanOnTarget = false;
+    try {
+      const currentBranch = this.git(["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+      const status = this.git(["status", "--porcelain"]).trim();
+      if (currentBranch === targetBranch && status.length === 0) {
+        repoRootWasCleanOnTarget = true;
+      }
+    } catch {}
 
     try {
-      // 1. Ensure primary repo is clean and on targetBranch (P3 #12)
-      const status = this.git(["status", "--porcelain"]).trim();
-      if (status) {
-        throw new Error(`Cannot perform merge: primary repo working tree has uncommitted changes:\n${status}`);
-      }
-      if (this.currentCheckedOutBranch !== targetBranch) {
-        this.git(["checkout", targetBranch]);
-        this.currentCheckedOutBranch = targetBranch;
+      // Execute merge inside dedicated merge sandbox (operator checkout in repoRoot is untouched)
+      this.gitIn(sandboxPath, ["merge", "--no-ff", branch, "-m", `Merge task ${task.id}: ${task.title}`]);
+
+      // If operator checkout was clean and tracking targetBranch, keep it in sync
+      if (repoRootWasCleanOnTarget) {
+        try {
+          this.git(["reset", "--hard", targetBranch]);
+        } catch {}
       }
 
-      // 2. Attempt merge
-      this.git(["merge", "--no-ff", branch, "-m", `Merge task ${task.id}: ${task.title}`]);
-
-      // 3. Clean up ephemeral worktree and branch
+      // Clean up ephemeral task worktree and branch
       this.worktrees.removeWorktree(taskId);
       this.worktrees.deleteBranch(taskId);
 
@@ -52,7 +112,7 @@ export class MergeQueue {
         status: "COMPLETED",
         worktreePath: null,
       });
-      this.db.logEvent(taskId, "task.merged", { targetBranch, branch });
+      this.db.logEvent(taskId, "task.merged", { targetBranch, branch, mergedInSandbox: true });
 
       return {
         ok: true,
@@ -64,9 +124,9 @@ export class MergeQueue {
       const err = error as { message?: string; stderr?: string };
       const detail = err.stderr || err.message || "Merge conflict";
 
-      // Abort in-progress git merge
+      // Abort in-progress git merge inside dedicated sandbox
       try {
-        this.git(["merge", "--abort"]);
+        this.gitIn(sandboxPath, ["merge", "--abort"]);
       } catch {}
 
       // Mark task as CONFLICT and preserve worktree in quarantine
@@ -76,12 +136,16 @@ export class MergeQueue {
       });
       this.db.logEvent(taskId, "task.conflict", { targetBranch, error: detail });
 
+      // Spawn automated conflict-reconciliation task (Part 2.4)
+      const reconciliationTaskId = this.spawnReconciliationTask(taskId, targetBranch, detail);
+
       return {
         ok: false,
         taskId,
         merged: false,
         conflict: true,
         reason: detail,
+        reconciliationTaskId,
       };
     }
   }
@@ -102,8 +166,12 @@ export class MergeQueue {
   }
 
   private git(args: readonly string[]): string {
+    return this.gitIn(this.repoRoot, args);
+  }
+
+  private gitIn(cwd: string, args: readonly string[]): string {
     return execFileSync("git", args, {
-      cwd: this.repoRoot,
+      cwd,
       encoding: "utf8",
       windowsHide: true,
       timeout: 30_000,

@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { describe } from "node:test";
 import { WaymarkSupervisor } from "../src/waymark/waymarkSupervisor.js";
 
+describe("Waymark Trajectory Supervisor Suite", () => {
 test("WaymarkSupervisor fallback mode manages lifecycle without native CLI", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "arbiter-waymark-test-"));
   try {
@@ -50,4 +51,5 @@ test("WaymarkSupervisor fallback mode manages lifecycle without native CLI", () 
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}
   }
+});
 });

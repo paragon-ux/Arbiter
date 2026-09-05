@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { describe } from "node:test";
 import { execFileSync } from "node:child_process";
 import { ArbiterDatabase } from "../src/db/database.js";
 import { WorktreeManager } from "../src/worktrees/worktreeManager.js";
@@ -10,6 +10,8 @@ import { WaymarkSupervisor } from "../src/waymark/waymarkSupervisor.js";
 import { TaskService } from "../src/dag/taskService.js";
 import { createArbiterTools } from "../src/mcp/tools.js";
 import { ArbiterMcpServer } from "../src/mcp/server.js";
+
+describe("Arbiter MCP Server Protocol Suite", () => {
 
 function setupFixtureRepo(): { repoRoot: string; cleanup: () => void } {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "arbiter-mcp-test-"));
@@ -150,4 +152,5 @@ test("ArbiterMcpServer handles initialize, ping, tools/list, and full agent work
   } finally {
     cleanup();
   }
+});
 });

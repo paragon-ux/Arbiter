@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { describe } from "node:test";
 import { execFileSync, spawn } from "node:child_process";
 import {
   isNativeKernelAvailable,
@@ -18,6 +18,8 @@ import { WorktreeManager } from "../src/worktrees/worktreeManager.js";
 import { LeaseWatchdog } from "../src/dispatch/watchdog.js";
 import { ArbiterDatabase } from "../src/db/database.js";
 import { WaymarkSupervisor } from "../src/waymark/waymarkSupervisor.js";
+
+describe("Native Kernel & Process Sandboxing Suite", () => {
 
 function setupFixtureRepo(): { repoRoot: string; cleanup: () => void } {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "arbiter-native-test-"));
@@ -106,4 +108,5 @@ test("LeaseWatchdog sandbox lifecycle methods operate safely with native kernel"
       child.kill();
     } catch {}
   }
+});
 });

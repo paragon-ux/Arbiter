@@ -43,12 +43,13 @@ This repository is part of an integrated, local-first multi-agent execution suit
 
 ### External Specifications
 
-| Specification | Canonical Reference | Usage in Suite |
+| Specification | Canonical Reference | Usage & Implementation Status in Suite |
 | :--- | :--- | :--- |
 | **Model Context Protocol (MCP)** | [Model Context Protocol Specification](https://github.com/modelcontextprotocol/specification) | Standardized JSON-RPC 2.0 stdio tool interface used across Waymark and Arbiter. |
-| **Tree-sitter WASM** | [Tree-sitter](https://github.com/tree-sitter/tree-sitter) | Polyglot AST grammars compiled to WebAssembly for zero-dependency symbol discovery. |
-| **Node.js Core Runtime** | [Node.js](https://github.com/nodejs/node) (v22+ LTS) | Native `node:sqlite`, `node:child_process`, `node:crypto`, `node:fs` (0 runtime npm dependencies). |
-| **Capn Hook / Memory Protocol** | [Capn Hook](https://github.com/cyrusNuevoDia/capn-hook) | Finalized episodic memory storage, distinct from Waymark's active in-flight trajectory ledger. |
+| **Tree-sitter WASM** | [Tree-sitter](https://github.com/tree-sitter/tree-sitter) | **Planned Integration (Polyglot AST Symbol Discovery)**: Zero-dependency syntax tree analysis roadmap. |
+| **Node.js Core Runtime** | [Node.js](https://github.com/nodejs/node) (v22+ LTS) | **Shipped**: Native `node:sqlite`, `node:child_process`, `node:crypto`, `node:fs` (0 runtime npm dependencies). |
+| **Waymark CLI** | [Waymark](https://github.com/paragon-ux/waymark) | **Shipped (Dual Mode: Native CLI with Fallback Simulator)**: In-flight continuity lifecycle management. |
+| **Capn Hook / Memory Protocol** | [Capn Hook](https://github.com/cyrusNuevoDia/capn-hook) | **Complementary Architecture (Finalized Episodic Memory vs. In-Flight Waymark Continuity)**: Post-merge episodic memory store. |
 
 ---
 
@@ -206,7 +207,7 @@ A core design invariant is that **Git merge conflicts never destroy or corrupt W
 Arbiter enforces a deterministic release discipline matching the highest industry standards:
 
 ```bash
-# Full verification pipeline: TypeScript build, 14 test suites, public hygiene, and benchmarks
+# Full verification pipeline (v2.1.0): TypeScript build, 11 test suites, public hygiene, and benchmarks
 npm run verify
 
 # Built-in native test coverage (Node 22)

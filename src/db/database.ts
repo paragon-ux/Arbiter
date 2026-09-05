@@ -200,15 +200,21 @@ export class ArbiterDatabase {
         return null;
       }
 
+      const epochRow = this.prepare(
+        "SELECT COALESCE(MAX(lease_epoch), 0) + 1 AS next_epoch FROM worker_leases WHERE task_id = ?"
+      ).get(taskId) as { next_epoch?: number } | undefined;
+      const leaseEpoch = Number(epochRow?.next_epoch ?? 1);
+
       // Atomically register active worker lease (enforcing unique active lease index)
       this.prepare(`
-        INSERT INTO worker_leases (worker_id, task_id, pid, heartbeat_at, status)
-        VALUES (?, ?, ?, ?, 'ACTIVE')
+        INSERT INTO worker_leases (worker_id, task_id, pid, heartbeat_at, status, lease_epoch)
+        VALUES (?, ?, ?, ?, 'ACTIVE', ?)
         ON CONFLICT(worker_id, task_id) DO UPDATE SET
           pid = excluded.pid,
           heartbeat_at = excluded.heartbeat_at,
-          status = 'ACTIVE'
-      `).run(workerId, taskId, pid, now);
+          status = 'ACTIVE',
+          lease_epoch = excluded.lease_epoch
+      `).run(workerId, taskId, pid, now, leaseEpoch);
 
       this.db.exec("COMMIT;");
 
@@ -219,6 +225,7 @@ export class ArbiterDatabase {
         pid,
         heartbeatAt: now,
         status: "ACTIVE",
+        leaseEpoch,
       };
 
       return { task, lease };
@@ -232,14 +239,16 @@ export class ArbiterDatabase {
 
 
   public setWorkerLease(lease: WorkerLease): void {
+    const epoch = lease.leaseEpoch ?? 1;
     this.prepare(`
-      INSERT INTO worker_leases (worker_id, task_id, pid, heartbeat_at, status)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO worker_leases (worker_id, task_id, pid, heartbeat_at, status, lease_epoch)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(worker_id, task_id) DO UPDATE SET
         pid = excluded.pid,
         heartbeat_at = excluded.heartbeat_at,
-        status = excluded.status
-    `).run(lease.workerId, lease.taskId, lease.pid, lease.heartbeatAt, lease.status);
+        status = excluded.status,
+        lease_epoch = excluded.lease_epoch
+    `).run(lease.workerId, lease.taskId, lease.pid, lease.heartbeatAt, lease.status, epoch);
   }
 
   public getWorkerLease(taskId: string): WorkerLease | null {
@@ -251,6 +260,7 @@ export class ArbiterDatabase {
       pid: Number(row.pid),
       heartbeatAt: String(row.heartbeat_at),
       status: row.status as "ACTIVE" | "EXPIRED" | "RELEASED",
+      leaseEpoch: Number(row.lease_epoch ?? 1),
     };
   }
 
@@ -266,6 +276,7 @@ export class ArbiterDatabase {
       pid: Number(row.pid),
       heartbeatAt: String(row.heartbeat_at),
       status: row.status as "ACTIVE" | "EXPIRED" | "RELEASED",
+      leaseEpoch: Number(row.lease_epoch ?? 1),
     }));
   }
 

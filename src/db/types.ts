@@ -35,6 +35,7 @@ export interface WorkerLease {
   pid: number;
   heartbeatAt: string;
   status: "ACTIVE" | "EXPIRED" | "RELEASED";
+  leaseEpoch?: number;
 }
 
 export interface TaskEvent {

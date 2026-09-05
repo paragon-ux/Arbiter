@@ -43,6 +43,7 @@ export function createArbiterTools(
           worktree_path: result.worktreePath,
           branch: result.branch,
           waymark_trajectory_id: result.waymarkTrajectoryId,
+          lease_epoch: result.leaseEpoch,
           directive: "Work strictly within worktree_path. Record hops using waymark_note. Call arbiter_complete_task when verified.",
         });
       } catch (error) {
@@ -70,6 +71,10 @@ export function createArbiterTools(
             type: "string",
             description: "Summary of progress made.",
           },
+          lease_epoch: {
+            type: "number",
+            description: "Optional monotonic lease epoch for ABA fencing.",
+          },
         },
         required: ["task_id", "worker_id", "message"],
       },
@@ -79,7 +84,8 @@ export function createArbiterTools(
         const taskId = String(args.task_id);
         const workerId = String(args.worker_id);
         const message = String(args.message);
-        taskService.checkpoint(taskId, workerId, message);
+        const leaseEpoch = typeof args.lease_epoch === "number" ? args.lease_epoch : undefined;
+        taskService.checkpoint(taskId, workerId, message, leaseEpoch);
 
         const task = taskService.db.getTask(taskId);
         let waymarkStatus: { status?: string; trajectoryId?: string | null; totalSteps?: number } | null = null;
@@ -126,6 +132,10 @@ export function createArbiterTools(
             type: "string",
             description: "Synthesized findings and summary of changes made.",
           },
+          lease_epoch: {
+            type: "number",
+            description: "Optional monotonic lease epoch for ABA fencing.",
+          },
         },
         required: ["task_id", "worker_id", "answer"],
       },
@@ -135,7 +145,8 @@ export function createArbiterTools(
         const taskId = String(args.task_id);
         const workerId = String(args.worker_id);
         const answer = String(args.answer);
-        const updated = taskService.completeTask(taskId, workerId, answer);
+        const leaseEpoch = typeof args.lease_epoch === "number" ? args.lease_epoch : undefined;
+        const updated = taskService.completeTask(taskId, workerId, answer, leaseEpoch);
         return jsonResult({
           ok: true,
           task_id: taskId,

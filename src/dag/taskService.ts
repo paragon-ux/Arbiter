@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { ArbiterDatabase } from "../db/database.js";
-import { TaskRecord } from "../db/types.js";
+import { TaskRecord, WorkerLease } from "../db/types.js";
 import { TaskGraph } from "./taskGraph.js";
 import { WorktreeManager } from "../worktrees/worktreeManager.js";
 import { WaymarkSupervisor } from "../waymark/waymarkSupervisor.js";
@@ -19,6 +19,7 @@ export interface ClaimTaskResult {
   worktreePath: string;
   branch: string;
   waymarkTrajectoryId: string;
+  leaseEpoch: number;
 }
 
 export class TaskService {
@@ -107,6 +108,7 @@ export class TaskService {
         worktreePath,
         branch,
         waymarkTrajectoryId: trajectoryId,
+        leaseEpoch: claim.lease.leaseEpoch ?? 1,
       };
     } catch (error) {
       // Revert if worktree/waymark provisioning fails
@@ -121,11 +123,19 @@ export class TaskService {
     }
   }
 
-  public checkpoint(taskId: string, workerId: string, message: string): void {
+  private assertActiveLease(taskId: string, workerId: string, leaseEpoch?: number): WorkerLease {
     const lease = this.db.getWorkerLease(taskId);
     if (!lease || lease.workerId !== workerId) {
       throw new Error(`Worker ${workerId} does not hold active lease for task ${taskId}`);
     }
+    if (leaseEpoch !== undefined && lease.leaseEpoch !== leaseEpoch) {
+      throw new Error(`STALE_EPOCH_REVOKED: Worker ${workerId} provided lease epoch ${leaseEpoch}, but active epoch is ${lease.leaseEpoch}`);
+    }
+    return lease;
+  }
+
+  public checkpoint(taskId: string, workerId: string, message: string, leaseEpoch?: number): void {
+    const lease = this.assertActiveLease(taskId, workerId, leaseEpoch);
 
     const task = this.db.getTask(taskId);
     if (!task || task.status !== "IN_PROGRESS" || !task.worktreePath) {
@@ -141,17 +151,14 @@ export class TaskService {
       heartbeatAt: new Date().toISOString(),
     });
 
-    this.db.logEvent(taskId, "task.checkpoint", { workerId, message });
+    this.db.logEvent(taskId, "task.checkpoint", { workerId, message, leaseEpoch });
   }
 
-  public completeTask(taskId: string, workerId: string, answer: string): TaskRecord {
+  public completeTask(taskId: string, workerId: string, answer: string, leaseEpoch?: number): TaskRecord {
     const task = this.db.getTask(taskId);
     if (!task) throw new Error(`Task ${taskId} not found`);
 
-    const lease = this.db.getWorkerLease(taskId);
-    if (!lease || lease.workerId !== workerId) {
-      throw new Error(`Worker ${workerId} does not hold active lease for task ${taskId}`);
-    }
+    this.assertActiveLease(taskId, workerId, leaseEpoch);
 
     if (!task.worktreePath) {
       throw new Error(`Task ${taskId} does not have a provisioned worktree`);

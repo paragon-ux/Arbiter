@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { describe } from "node:test";
 import { execFileSync } from "node:child_process";
 import { WorktreeManager } from "../src/worktrees/worktreeManager.js";
+
+describe("WorktreeManager Isolation & Provisioning Suite", () => {
 
 function setupFixtureRepo(): { repoRoot: string; cleanup: () => void } {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "arbiter-wt-test-"));
@@ -60,4 +62,5 @@ test("WorktreeManager provisions isolated worktree, commits changes, and prunes 
   } finally {
     cleanup();
   }
+});
 });

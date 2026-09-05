@@ -65,6 +65,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_single_active_task_lease ON worker_leases(
 CREATE INDEX IF NOT EXISTS idx_tasks_claimable ON tasks(status, created_at) WHERE status IN ('PENDING', 'READY');
 `;
 
+export const MIGRATION_V3 = `
+-- Monotonic lease_epoch for ABA protection and worker fencing (Part 2.5)
+ALTER TABLE worker_leases ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 1;
+`;
+
 export function applyMigrations(db: DatabaseSync): void {
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec(`
@@ -85,6 +90,11 @@ export function applyMigrations(db: DatabaseSync): void {
   if (currentVersion < 2) {
     db.exec(MIGRATION_V2);
     db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(2, new Date().toISOString());
+  }
+
+  if (currentVersion < 3) {
+    db.exec(MIGRATION_V3);
+    db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(3, new Date().toISOString());
   }
 }
 
