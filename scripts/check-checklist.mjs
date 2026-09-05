@@ -37,6 +37,53 @@ const seqBlocks = content.split(/###\s*\[(SEQ-\d+)\]/g);
 let checkedCount = 0;
 let errors = 0;
 
+function verifyScopeFiles(body, seqId) {
+  const scopeMatch = body.match(/- \*\*Scope:\*\*\s*`([^`]+)`\s*\(([^)]+)\)/);
+  if (!scopeMatch) return true;
+
+  const repoName = scopeMatch[1].trim();
+  const filesStr = scopeMatch[2];
+  const files = [...filesStr.matchAll(/`([^`]+)`/g)].map(m => m[1]);
+
+  let repoRoot = rootDir;
+  if (repoName === 'Arbiter') {
+    repoRoot = resolve(rootDir, '..', 'Arbiter');
+    if (!existsSync(repoRoot)) repoRoot = resolve(rootDir, 'Arbiter');
+  } else if (repoName === 'arbiter-live-benchmark') {
+    repoRoot = resolve(rootDir, '..', 'arbiter-live-benchmark');
+    if (!existsSync(repoRoot)) repoRoot = resolve(rootDir);
+  }
+
+  let ok = true;
+  for (const f of files) {
+    const cleanPath = f.split(/[,*]/)[0].trim();
+    if (!cleanPath) continue;
+    const absPath = resolve(repoRoot, cleanPath);
+    if (!existsSync(absPath)) {
+      console.error(`[${seqId}] Referenced scope file missing: ${cleanPath} (in ${absPath})`);
+      ok = false;
+    }
+  }
+  return ok;
+}
+
+function verifyTestFileExists(body, seqId) {
+  const testMatch = body.match(/(?:dist\/test|test)\/([a-zA-Z0-9_-]+\.test\.(?:js|ts))/);
+  if (!testMatch) return true;
+  const testFileName = testMatch[1].replace(/\.js$/, '.ts');
+  const candidates = [
+    resolve(rootDir, 'test', testFileName),
+    resolve(rootDir, '..', 'Arbiter', 'test', testFileName),
+    resolve(rootDir, '..', 'arbiter-live-benchmark', 'test', testFileName),
+  ];
+  const exists = candidates.some(existsSync);
+  if (!exists) {
+    console.error(`[${seqId}] Referenced test file missing from repository: ${testFileName}`);
+    return false;
+  }
+  return true;
+}
+
 for (let i = 1; i < seqBlocks.length; i += 2) {
   const seqId = seqBlocks[i];
   const body = seqBlocks[i + 1] || '';
@@ -44,9 +91,22 @@ for (let i = 1; i < seqBlocks.length; i += 2) {
   const isChecked = /- \[[xX]\]\s*\*\*Status:\*\*/.test(body);
   if (isChecked) {
     checkedCount++;
-    // Verify verification command exists in body
+    // 1. Verify verification command exists in body
     if (!body.includes('```bash')) {
       console.error(`[${seqId}] Checked item lacks verification command block`);
+      errors++;
+    }
+    // 2. Verify expected output block exists in body
+    if (!body.includes('Expected Output:')) {
+      console.error(`[${seqId}] Checked item lacks Expected Output block`);
+      errors++;
+    }
+    // 3. Verify scope files exist on disk
+    if (!verifyScopeFiles(body, seqId)) {
+      errors++;
+    }
+    // 4. Verify test files exist on disk
+    if (!verifyTestFileExists(body, seqId)) {
       errors++;
     }
   }
