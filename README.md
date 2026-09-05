@@ -213,7 +213,7 @@ A core design invariant is that **Git merge conflicts never destroy or corrupt W
 Arbiter enforces a deterministic release discipline matching the highest industry standards:
 
 ```bash
-# Full verification pipeline (v2.1.0): TypeScript build, 11 test suites, public hygiene, and benchmarks
+# Full verification pipeline (v2.1.1): TypeScript build, 11 test suites, public hygiene, and benchmarks
 npm run verify
 
 # Built-in native test coverage (Node 22)
