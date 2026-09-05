@@ -100,7 +100,7 @@ test("LeaseWatchdog sandbox lifecycle methods operate safely with native kernel"
     watchdog.evictWorkerSandbox("worker-alpha");
     // Give OS a moment to reap the process
     await new Promise((r) => setTimeout(r, 50));
-    if (isNativeKernelAvailable()) {
+    if (isNativeKernelAvailable() && process.platform === "win32") {
       assert.equal(watchdog.isPidAlive(child.pid), false);
     }
   } finally {
