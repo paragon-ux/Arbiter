@@ -1,5 +1,10 @@
 # Arbiter: Local-First Multi-Agent Orchestration & Ephemeral Worktree Supervisor
 
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](package.json)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](package.json)
+[![Zero Runtime Dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](package.json)
+
 > **Empirical Multi-Agent Benchmark:** Across parallel agent swarms, Arbiter provisions isolated ephemeral Git worktrees in **~300ms**, resolves 50-node task dependency DAGs in **<4ms**, and detects dead agent processes with lock reclamation in **~1ms**—all powered by Node 22 native SQLite with **0 runtime npm dependencies** (<6 MB heap). Conflicted merges rollback cleanly in **<80ms** with zero dirty state left on `main`. (Reproduce via `npm run benchmark`).
 
 ---
@@ -138,7 +143,7 @@ Antigravity-Project/
     │   ├── dispatch/                  # LeaseWatchdog (dead-PID detection via process.kill(pid, 0))
     │   ├── mcp/                       # JSON-RPC 2.0 stdio MCP server (11 native tools)
     │   └── cli/                       # Operator CLI (submit, claim, checkpoint, complete, merge)
-    └── test/                          # 14 unit & integration test suites
+    └── test/                          # 11 unit & integration test suites (28 tests)
 ```
 
 ---
