@@ -9,7 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.1.1] — 2026-09-05
 
-- Version bump to 2.1.1.
+### Added
+- **Automated Version Registry (`docs/VERSION_REGISTRY.md` & `scripts/bump-version.mjs`)**:
+  - Declarative living version management separating living manifests and docs from historical immutable release audits.
+  - Added `check:version` and `bump:version` npm scripts, integrating version drift validation directly into `npm run verify`.
+  - Added CLI bumper utility (`node scripts/bump-version.mjs <semver>`) for atomic multi-manifest version updates across `package.json`, `Cargo.toml`, `README.md`, `CLAIMS.md`, and `FEATURE_STATUS.md`.
+
+### Fixed
+- **Cross-Platform Test Hardening**:
+  - Guarded Win32 Job Object process eviction test assertions against non-Windows environments (`process.platform === 'win32'`).
 
 ## [2.1.0] — 2026-09-05 ("Remediation & Anti-Regression Hardening")
 
